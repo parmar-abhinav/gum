@@ -25,7 +25,7 @@ async def main():
 
         gum_instance = gum(args.user_name, model)
         await gum_instance.connect_db()
-        result = await gum_instance.query(args.query, limit=10)
+        result = await gum_instance.query(args.query, limit=args.limit)
         
         # pretty print confidences / propositions / number of items returned
         print(f"\nFound {len(result)} results:")
