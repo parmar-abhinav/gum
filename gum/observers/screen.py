@@ -198,7 +198,7 @@ class Screen(Observer):
             base_url=api_base or os.getenv("SCREEN_LM_API_BASE") or os.getenv("GUM_LM_API_BASE"), 
 
             # try the class, then the env for screen, then the env for GUM, then none
-            api_key=api_key or os.getenv("SCREEN_LM_API_KEY") or os.getenv("GUM_LM_API_KEY") or "None"
+            api_key=api_key or os.getenv("SCREEN_LM_API_KEY") or os.getenv("GUM_LM_API_KEY") or os.getenv("OPENAI_API_KEY") or "None"
         )
 
         # call parent
