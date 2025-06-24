@@ -52,17 +52,18 @@ You can start a GUM server directly from the command line.
         > # Launch the screen VLM model
         > CUDA_VISIBLE_DEVICES=0 python -m sglang.launch_server ....
 
-        > # Launch the GUM model (note- this can be the same model, so you don't have to launch two)
-        > CUDA_VISIBLE_DEVICES=1 python -m sglang.launch_server ....
 
         > # point this to the GUM LM
-        > export GUM_LM_API_BASE="gum-base-url"
+        > export GUM_LM_API_BASE="base-url"
 
         > # point this to the VLM
-        > export SCREEN_LM_API_BASE="screen-base-url"
+        > export SCREEN_LM_API_BASE="base-url"
+
+        > # point this to the VLM
+        > export OPENAI_API_KEY="None"
         ```
 
-        Alternatively, we recommend using [SkyPilot](https://docs.skypilot.co/en/latest/docs/index.html) to serve and run your own models on the cloud.
+        Alternatively, we recommend using [SkyPilot](https://docs.skypilot.co/en/latest/docs/index.html) to serve and run your own models on the cloud. You can use the following [config.yaml]() file in the repo. By default, we use Qwen 2.5 VL 32B (AWQ quanitized). A single H100 (80GB) should give you good enough throughput.
 
     === "OpenAI"
         You can authenticate by setting the `OPENAI_API_KEY` env variable.

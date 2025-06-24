@@ -9,7 +9,6 @@ import logging
 import os
 import time
 from collections import deque
-from importlib.resources import files as get_package_file
 from typing import Any, Dict, Iterable, List, Optional
 
 import asyncio
@@ -29,6 +28,9 @@ from ..schemas import Update
 
 # — OpenAI async client —
 from openai import AsyncOpenAI
+
+# — Local —
+from gum.prompts.screen import TRANSCRIPTION_PROMPT, SUMMARY_PROMPT
 
 ###############################################################################
 # Window‑geometry helpers                                                     #
@@ -179,8 +181,8 @@ class Screen(Observer):
 
         self._guard = {skip_when_visible} if isinstance(skip_when_visible, str) else set(skip_when_visible or [])
 
-        self.transcription_prompt = transcription_prompt or self._load_prompt("transcribe.txt")
-        self.summary_prompt = summary_prompt or self._load_prompt("summarize.txt")
+        self.transcription_prompt = transcription_prompt or TRANSCRIPTION_PROMPT
+        self.summary_prompt = summary_prompt or SUMMARY_PROMPT
         self.model_name = model_name
 
         self.debug = debug
@@ -201,18 +203,6 @@ class Screen(Observer):
         super().__init__()
 
     # ─────────────────────────────── tiny sync helpers
-    @staticmethod
-    def _load_prompt(fname: str) -> str:
-        """Load a prompt template from the package resources.
-        
-        Args:
-            fname (str): Name of the prompt file to load.
-            
-        Returns:
-            str: Contents of the prompt file.
-        """
-        return get_package_file("gum.prompts.screen").joinpath(fname).read_text()
-
     @staticmethod
     def _mon_for(x: float, y: float, mons: list[dict]) -> Optional[int]:
         """Find which monitor contains the given coordinates.
@@ -289,7 +279,7 @@ class Screen(Observer):
             Image.frombytes("RGB", (frame.width, frame.height), frame.rgb).save,
             path,
             "JPEG",
-            quality=90,
+            quality=70,
         )
         return path
 

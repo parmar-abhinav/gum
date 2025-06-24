@@ -9,7 +9,6 @@ import os
 from uuid import uuid4
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from importlib.resources import files as get_package_file
 from typing import Callable, List
 from .models import observation_proposition
 
@@ -31,9 +30,10 @@ from .schemas import (
     get_schema,
     AuditSchema
 )
+from gum.prompts.gum import AUDIT_PROMPT, PROPOSE_PROMPT, REVISE_PROMPT, SIMILAR_PROMPT
 
 class gum:
-    """A class for managing user models and simulations.
+    """A class for managing general user models.
 
     This class provides functionality for observing user behavior, generating and managing
     propositions about user behavior, and maintaining relationships between observations
@@ -89,10 +89,10 @@ class gum:
             self.logger.addHandler(h)
 
         # prompts
-        self.propose_prompt = propose_prompt or self._load_prompt("propose.txt")
-        self.similar_prompt = similar_prompt or self._load_prompt("similar.txt")
-        self.revise_prompt = revise_prompt or self._load_prompt("revise.txt")
-        self.audit_prompt = audit_prompt or self._load_prompt("audit.txt")
+        self.propose_prompt = propose_prompt or PROPOSE_PROMPT
+        self.similar_prompt = similar_prompt or SIMILAR_PROMPT
+        self.revise_prompt = revise_prompt or REVISE_PROMPT
+        self.audit_prompt = audit_prompt or AUDIT_PROMPT
 
         self.client = AsyncOpenAI(
             base_url=api_base or os.getenv("GUM_LM_API_BASE"), 
@@ -515,18 +515,6 @@ class gum:
             .values(observation_id=obs.id, proposition_id=prop.id)
         )
         prop.updated_at = datetime.now(timezone.utc)
-
-    @staticmethod
-    def _load_prompt(fname: str) -> str:
-        """Load a prompt template from the package resources.
-        
-        Args:
-            fname (str): The name of the prompt file to load.
-            
-        Returns:
-            str: The contents of the prompt file.
-        """
-        return get_package_file("gum.prompts.gum").joinpath(fname).read_text()
 
     def add_observer(self, observer: Observer):
         """Add an observer to track user behavior.

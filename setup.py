@@ -4,7 +4,6 @@ setup(
     name="gum",
     version="0.1.2",
     packages=find_packages(),
-    include_package_data=True,
     install_requires=[
         # Core dependencies
         "pillow",  # For image processing
