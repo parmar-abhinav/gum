@@ -96,7 +96,7 @@ class gum:
 
         self.client = AsyncOpenAI(
             base_url=api_base or os.getenv("GUM_LM_API_BASE"), 
-            api_key=api_key or os.getenv("GUM_LM_API_KEY")
+            api_key=api_key or os.getenv("GUM_LM_API_KEY") or "None"
         )
 
         self.engine = None

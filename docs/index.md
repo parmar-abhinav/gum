@@ -49,21 +49,20 @@ You can start a GUM server directly from the command line.
         > pip install "sglang[all]"
         > pip install flashinfer -i https://flashinfer.ai/whl/cu121/torch2.4/ 
 
-        > # Launch the screen VLM model
+        > # Launch model
         > CUDA_VISIBLE_DEVICES=0 python -m sglang.launch_server ....
 
+        > # name of the model you launched
+        > export MODEL_NAME="model-org/model-name"
 
-        > # point this to the GUM LM
+        > # point this to the GUM multimodal model
         > export GUM_LM_API_BASE="base-url"
 
-        > # point this to the VLM
-        > export SCREEN_LM_API_BASE="base-url"
-
-        > # point this to the VLM
-        > export OPENAI_API_KEY="None"
+        > # (optionally) set an API key
+        > export GUM_LM_API_KEY="None"
         ```
 
-        Alternatively, we recommend using [SkyPilot](https://docs.skypilot.co/en/latest/docs/index.html) to serve and run your own models on the cloud. You can use the following [config.yaml]() file in the repo. By default, we use Qwen 2.5 VL 32B (AWQ quanitized). A single H100 (80GB) should give you good enough throughput.
+        Alternatively, we recommend using [SkyPilot](https://docs.skypilot.co/en/latest/docs/index.html) to serve and run your own models on the cloud. You can use the following [skypilot.yaml](https://github.com/GeneralUserModels/gum/blob/main/skypilot-tmp.yaml) file in the repo. You'll need to replace the HuggingFace token (HF_TOKEN) with your own. By default, we use Qwen 2.5 VL 32B (AWQ quanitized). A single H100 (80GB) should give you good enough throughput.
 
     === "OpenAI"
         You can authenticate by setting the `OPENAI_API_KEY` env variable.
@@ -75,7 +74,7 @@ You can start a GUM server directly from the command line.
     Start the GUM listening process up:
 
     ```bash
-    > gum --user-name "Your Name"
+    > gum -u "Your Name"
     ```
 
     !!! note "Required Permissions"
@@ -84,7 +83,7 @@ You can start a GUM server directly from the command line.
     Once you're all done, go ahead and try querying your GUM to view propositions and observations:
 
     ```bash
-    > gum --query "email"
+    > gum -q "email"
     ```
 
 
