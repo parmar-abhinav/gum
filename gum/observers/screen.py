@@ -12,7 +12,6 @@ from collections import deque
 from typing import Any, Dict, Iterable, List, Optional
 
 import asyncio
-from functools import partial
 
 # — Third-party —
 import mss
