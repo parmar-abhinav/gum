@@ -222,7 +222,7 @@ async def search_propositions_bm25(
         docs: list[str] = []
         for p, _ in rows:
             obs_concat = (
-                " ".join(o.content for o in p.observations[:10])
+                " ".join(o.content for o in list(p.observations)[:10])
                 if include_observations else ""
             )
             docs.append(f"{p.text} {p.reasoning} {obs_concat}")
