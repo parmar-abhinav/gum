@@ -64,8 +64,8 @@ from sqlalchemy.orm import selectinload
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-K_DECAY = 0.04   # whatever you used
-LAMBDA   = 0.7   # ditto
+K_DECAY = 2   # whatever you used
+LAMBDA   = 0.5   # ditto
 
 async def search_propositions_bm25(
     session: AsyncSession,
@@ -75,7 +75,7 @@ async def search_propositions_bm25(
     mode: str = "OR",
     start_time: datetime | None = None,
     end_time: datetime | None = None,
-    include_observations: bool = False,
+    include_observations: bool = True,
     enable_decay: bool = True,
     enable_mmr: bool = True,
 ) -> list[tuple["Proposition", float]]:
@@ -86,7 +86,7 @@ async def search_propositions_bm25(
     # --------------------------------------------------------
     # 1  Build candidate list
     # --------------------------------------------------------
-    candidate_pool = max(limit * 10, limit)
+    candidate_pool = limit * 10 if enable_mmr else limit # overdraw for MMR
     has_child      = _has_child_subquery()
 
     if has_query:
@@ -157,6 +157,7 @@ async def search_propositions_bm25(
             select(Proposition, best_scores.c.bm25)
             .join(best_scores, best_scores.c.pid == Proposition.id)
             .where(~has_child)
+            .order_by(best_scores.c.bm25.asc())
         )
 
     else:
@@ -194,21 +195,20 @@ async def search_propositions_bm25(
     if not rows:
         return []
 
-    now = datetime.now(timezone.utc)
     rel_scores: List[float] = []
 
+    now = datetime.now(timezone.utc)
     for prop, raw_score in rows:
-        # BM25: lower is better → negate it so “higher is better”
-        score = -raw_score
-
+        gamma = 1.0                         # default: no decay
         if enable_decay:
             dt = prop.created_at.replace(tzinfo=timezone.utc)
             age_days = max((now - dt).total_seconds() / 86_400, 0.0)
-            alpha    = prop.decay if prop.decay is not None else 0.0
-            gamma    = math.exp(-alpha * K_DECAY * age_days)
-            score   *= gamma          # apply decay
-        # else: gamma == 1 → no change
+            alpha = prop.decay if prop.decay is not None else 0.0
+            gamma = math.exp(-alpha * K_DECAY * age_days)
 
+        # BM25: smaller is better ⇒ negate to make larger better,
+        #       but *after* dividing by γ so age penalty lowers rank.
+        score = -raw_score / gamma
         rel_scores.append(score)
 
     # --------------------------------------------------------

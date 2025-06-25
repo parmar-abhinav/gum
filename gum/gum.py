@@ -354,8 +354,25 @@ class gum:
             # search existing persisted props
             with session.no_autoflush:
                 hits = await search_propositions_bm25(
-                    session, f"{draft.text}\n{draft.reasoning}", mode="OR"
+                    session, f"{draft.text}\n{draft.reasoning}", mode="OR",
+                    include_observations=False,
+                    enable_mmr=True,
+                    enable_decay=True
                 )
+
+            print("-" * 80)
+            print("USER QUERY")
+            print(f"{draft.text}\n{draft.reasoning}")
+            print("-" * 80)
+
+
+            print("HITS")
+            for prop, _score in hits:
+                print(f"prop: {prop.text}")
+                print(f"prop reasoning: {prop.reasoning}")
+                print(f"score: {_score}")
+                print("-" * 80)
+
             for prop, _score in hits:
                 pool[prop.id] = prop
 
