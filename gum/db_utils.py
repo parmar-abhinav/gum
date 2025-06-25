@@ -11,7 +11,7 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from sqlalchemy import MetaData, Table, literal_column, select, text, func
+from sqlalchemy import MetaData, Table, literal_column, select, text, func, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -45,6 +45,28 @@ def _has_child_subquery() -> select:
 K_DECAY = 2.0     # decay rate for recency adjustment
 LAMBDA = 0.5      # trade-off for MMR
 
+import math
+import numpy as np
+from datetime import datetime, timezone
+from typing import List
+
+from sqlalchemy import (
+    MetaData,
+    Table,
+    select,
+    literal_column,
+    literal,
+    text,
+    func,
+)
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+K_DECAY = 0.04   # whatever you used
+LAMBDA   = 0.7   # ditto
+
 async def search_propositions_bm25(
     session: AsyncSession,
     user_query: str,
@@ -53,51 +75,81 @@ async def search_propositions_bm25(
     mode: str = "OR",
     start_time: datetime | None = None,
     end_time: datetime | None = None,
-) -> list[tuple[Proposition, float]]:
+    include_observations: bool = False,
+) -> list[tuple["Proposition", float]]:
 
     q = build_fts_query(user_query, mode)
-    has_query = bool(q)          # <- remember whether we really have an FTS query
+    has_query = bool(q)
 
     # --------------------------------------------------------
     # 1  Build candidate list
     # --------------------------------------------------------
     candidate_pool = max(limit * 10, limit)
-    has_child = _has_child_subquery()
+    has_child      = _has_child_subquery()
 
-    # ----------  1-a.  With a real query  ----------
     if has_query:
         fts_prop = Table("propositions_fts", MetaData())
-        fts_obs  = Table("observations_fts",  MetaData())
 
-        bm25_p = literal_column("bm25(propositions_fts)").label("score")
-        bm25_o = literal_column("bm25(observations_fts)").label("score")
+        if include_observations:
+            # -------- 1-a-1  WITH observations (original plan) --------------
+            fts_obs  = Table("observations_fts", MetaData())
 
-        sub_p = (
-            select(Proposition.id.label("pid"), bm25_p)
-            .select_from(fts_prop.join(Proposition,
-                                       literal_column("propositions_fts.rowid") == Proposition.id))
-            .where(text("propositions_fts MATCH :q"))
-        )
+            bm25_p   = literal_column("bm25(propositions_fts)").label("score")
+            bm25_o   = literal_column("bm25(observations_fts)").label("score")
 
-        sub_o = (
-            select(observation_proposition.c.proposition_id.label("pid"), bm25_o)
-            .select_from(
-                fts_obs
-                .join(Observation,
-                      literal_column("observations_fts.rowid") == Observation.id)
-                .join(observation_proposition,
-                      observation_proposition.c.observation_id == Observation.id)
+            sub_p = (
+                select(Proposition.id.label("pid"), bm25_p)
+                .select_from(
+                    fts_prop.join(
+                        Proposition,
+                        literal_column("propositions_fts.rowid") == Proposition.id,
+                    )
+                )
+                .where(text("propositions_fts MATCH :q"))
             )
-            .where(text("observations_fts MATCH :q"))
-        )
 
-        union_sub  = sub_p.union_all(sub_o).subquery()
-        best_scores = (
-            select(union_sub.c.pid,
-                   func.min(union_sub.c.score).label("bm25"))
-            .group_by(union_sub.c.pid)
-            .subquery()
-        )
+            sub_o = (
+                select(observation_proposition.c.proposition_id.label("pid"), bm25_o)
+                .select_from(
+                    fts_obs
+                    .join(
+                        Observation,
+                        literal_column("observations_fts.rowid") == Observation.id,
+                    )
+                    .join(
+                        observation_proposition,
+                        observation_proposition.c.observation_id == Observation.id,
+                    )
+                )
+                .where(text("observations_fts MATCH :q"))
+            )
+
+            union_sub = sub_p.union_all(sub_o).subquery()
+
+            best_scores = (
+                select(
+                    union_sub.c.pid,
+                    func.min(union_sub.c.score).label("bm25"),
+                )
+                .group_by(union_sub.c.pid)
+                .subquery()
+            )
+        else:
+            # -------- 1-a-2  WITHOUT observations (leaner query) ------------
+            best_scores = (
+                select(
+                    Proposition.id.label("pid"),
+                    literal_column("bm25(propositions_fts)").label("bm25"),
+                )
+                .select_from(
+                    fts_prop.join(
+                        Proposition,
+                        literal_column("propositions_fts.rowid") == Proposition.id,
+                    )
+                )
+                .where(text("propositions_fts MATCH :q"))
+                .subquery()
+            )
 
         stmt = (
             select(Proposition, best_scores.c.bm25)
@@ -105,20 +157,16 @@ async def search_propositions_bm25(
             .where(~has_child)
         )
 
-    # ----------  1-b.  No query – return “something” ----------
     else:
-        # Give every row the same dummy BM25 so later code keeps working.
+        # -------- 1-b  No user query ---------------------------------------
         stmt = (
-            select(Proposition,
-                   literal_column("0.0").label("bm25"))
+            select(Proposition, literal_column("0.0").label("bm25"))
             .where(~has_child)
-            # In the no-query case you probably want a different sort;
-            # here we simply return most recent first:
             .order_by(Proposition.created_at.desc())
         )
 
     # --------------------------------------------------------
-    # 2  Time filtering and limit
+    # 2  Time filtering & eager-load
     # --------------------------------------------------------
     if end_time is None:
         end_time = datetime.now(timezone.utc)
@@ -131,40 +179,47 @@ async def search_propositions_bm25(
         stmt = stmt.where(Proposition.created_at >= start_time)
     stmt = stmt.where(Proposition.created_at <= end_time)
 
-    stmt = (
-        stmt.options(selectinload(Proposition.observations))
-        .limit(candidate_pool)
-    )
+    if include_observations:
+        stmt = stmt.options(selectinload(Proposition.observations))
 
-    # Supply :q only when there is a real query
+    stmt = stmt.limit(candidate_pool)
+
+    # --------------------------------------------------------
+    # 3  Execute & post-process
+    # --------------------------------------------------------
     bind = {"q": q} if has_query else {}
-    raw  = await session.execute(stmt, bind)
-    rows = raw.all()
+    rows = (await session.execute(stmt, bind)).all()
     if not rows:
         return []
 
     now = datetime.now(timezone.utc)
     rel_scores: List[float] = []
     for prop, raw_score in rows:
-        # Ensure tz‑aware timestamp
         dt = prop.created_at
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
 
         age_days = max((now - dt).total_seconds() / 86400, 0.0)
-        alpha = prop.decay if prop.decay is not None else 0.0
-        gamma = math.exp(-alpha * K_DECAY * age_days)
+        alpha    = prop.decay if prop.decay is not None else 0.0
+        gamma    = math.exp(-alpha * K_DECAY * age_days)
 
-        r_eff = -raw_score * gamma  # BM25: lower is better → negate
-        rel_scores.append(r_eff)
+        rel_scores.append(-raw_score * gamma)   # BM25 lower→better → negate
 
-    docs: list[str] = []
+    # Build documents for TF-IDF
+    docs: List[str] = []
     for p, _ in rows:
-        obs_concat = " ".join(o.content for o in list(p.observations)[:10])
+        obs_concat = (
+            " ".join(o.content for o in p.observations[:10])
+            if include_observations
+            else ""
+        )
         docs.append(f"{p.text} {p.reasoning} {obs_concat}")
 
     vecs = TfidfVectorizer().fit_transform(docs)
 
+    # --------------------------------------------------------
+    # 4  MMR selection
+    # --------------------------------------------------------
     selected_idxs: List[int] = []
     final_scores:  List[float] = []
 
@@ -173,8 +228,8 @@ async def search_propositions_bm25(
             idx = int(np.argmax(rel_scores))
         else:
             sims = cosine_similarity(vecs, vecs[selected_idxs]).max(axis=1)
-            mmr = LAMBDA * np.array(rel_scores) - (1 - LAMBDA) * sims
-            mmr[selected_idxs] = -np.inf  # don’t repeat
+            mmr  = LAMBDA * np.array(rel_scores) - (1 - LAMBDA) * sims
+            mmr[selected_idxs] = -np.inf
             idx = int(np.argmax(mmr))
         selected_idxs.append(idx)
         final_scores.append(rel_scores[idx])
