@@ -76,6 +76,8 @@ async def search_propositions_bm25(
     start_time: datetime | None = None,
     end_time: datetime | None = None,
     include_observations: bool = False,
+    enable_decay: bool = True,
+    enable_mmr: bool = True,
 ) -> list[tuple["Proposition", float]]:
 
     q = build_fts_query(user_query, mode)
@@ -194,45 +196,56 @@ async def search_propositions_bm25(
 
     now = datetime.now(timezone.utc)
     rel_scores: List[float] = []
+
     for prop, raw_score in rows:
-        dt = prop.created_at
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+        # BM25: lower is better → negate it so “higher is better”
+        score = -raw_score
 
-        age_days = max((now - dt).total_seconds() / 86400, 0.0)
-        alpha    = prop.decay if prop.decay is not None else 0.0
-        gamma    = math.exp(-alpha * K_DECAY * age_days)
+        if enable_decay:
+            dt = prop.created_at.replace(tzinfo=timezone.utc)
+            age_days = max((now - dt).total_seconds() / 86_400, 0.0)
+            alpha    = prop.decay if prop.decay is not None else 0.0
+            gamma    = math.exp(-alpha * K_DECAY * age_days)
+            score   *= gamma          # apply decay
+        # else: gamma == 1 → no change
 
-        rel_scores.append(-raw_score * gamma)   # BM25 lower→better → negate
-
-    # Build documents for TF-IDF
-    docs: List[str] = []
-    for p, _ in rows:
-        obs_concat = (
-            " ".join(o.content for o in p.observations[:10])
-            if include_observations
-            else ""
-        )
-        docs.append(f"{p.text} {p.reasoning} {obs_concat}")
-
-    vecs = TfidfVectorizer().fit_transform(docs)
+        rel_scores.append(score)
 
     # --------------------------------------------------------
-    # 4  MMR selection
+    # 4  Optional MMR diversification
     # --------------------------------------------------------
-    selected_idxs: List[int] = []
-    final_scores:  List[float] = []
+    if enable_mmr and len(rows) > 1:
+        # build documents only if we really need them
+        docs: List[str] = []
+        for p, _ in rows:
+            obs_concat = (
+                " ".join(o.content for o in p.observations[:10])
+                if include_observations else ""
+            )
+            docs.append(f"{p.text} {p.reasoning} {obs_concat}")
 
-    while len(selected_idxs) < min(limit, len(rows)):
-        if not selected_idxs:
-            idx = int(np.argmax(rel_scores))
-        else:
-            sims = cosine_similarity(vecs, vecs[selected_idxs]).max(axis=1)
-            mmr  = LAMBDA * np.array(rel_scores) - (1 - LAMBDA) * sims
-            mmr[selected_idxs] = -np.inf
-            idx = int(np.argmax(mmr))
-        selected_idxs.append(idx)
-        final_scores.append(rel_scores[idx])
+        vecs = TfidfVectorizer().fit_transform(docs)
+
+        selected_idxs, final_scores = [], []
+        while len(selected_idxs) < min(limit, len(rows)):
+            if not selected_idxs:
+                idx = int(np.argmax(rel_scores))
+            else:
+                sims = cosine_similarity(vecs, vecs[selected_idxs]).max(axis=1)
+                mmr  = LAMBDA * np.array(rel_scores) - (1 - LAMBDA) * sims
+                mmr[selected_idxs] = -np.inf
+                idx = int(np.argmax(mmr))
+            selected_idxs.append(idx)
+            final_scores.append(rel_scores[idx])
+
+    else:
+        # no MMR → pick rows by simple order
+        if has_query:                                 # real query → sort by score
+            idxs = np.argsort(rel_scores)[::-1][:limit]
+        else:                                         # no query → SQL already sorted
+            idxs = list(range(min(limit, len(rows))))
+        selected_idxs   = idxs
+        final_scores    = [rel_scores[i] for i in idxs]
 
     return [(rows[i][0], final_scores[pos]) for pos, i in enumerate(selected_idxs)]
 
