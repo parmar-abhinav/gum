@@ -64,9 +64,9 @@ from sqlalchemy.orm import selectinload
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-K_DECAY  = 2   # whatever you used
-LAMBDA   = 0.5   # ditto
-EPS      = 1e-12                     # protects log(0)
+K_DECAY  = 2      # whatever you used
+LAMBDA   = 0.5    # ditto
+EPS      = 1e-12  # protects log(0)
 
 async def search_propositions_bm25(
     session: AsyncSession,
