@@ -64,8 +64,9 @@ from sqlalchemy.orm import selectinload
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-K_DECAY = 2   # whatever you used
+K_DECAY  = 2   # whatever you used
 LAMBDA   = 0.5   # ditto
+EPS      = 1e-12                     # protects log(0)
 
 async def search_propositions_bm25(
     session: AsyncSession,
@@ -86,14 +87,14 @@ async def search_propositions_bm25(
     # --------------------------------------------------------
     # 1  Build candidate list
     # --------------------------------------------------------
-    candidate_pool = limit * 10 if enable_mmr else limit # overdraw for MMR
+    candidate_pool = limit * 10 if enable_mmr else limit
     has_child      = _has_child_subquery()
 
     if has_query:
         fts_prop = Table("propositions_fts", MetaData())
 
         if include_observations:
-            # -------- 1-a-1  WITH observations (original plan) --------------
+            # --- 1-a-1  WITH observations --------------------
             fts_obs  = Table("observations_fts", MetaData())
 
             bm25_p   = literal_column("bm25(propositions_fts)").label("score")
@@ -137,7 +138,7 @@ async def search_propositions_bm25(
                 .subquery()
             )
         else:
-            # -------- 1-a-2  WITHOUT observations (leaner query) ------------
+            # --- 1-a-2  WITHOUT observations -----------------
             best_scores = (
                 select(
                     Proposition.id.label("pid"),
@@ -157,11 +158,10 @@ async def search_propositions_bm25(
             select(Proposition, best_scores.c.bm25)
             .join(best_scores, best_scores.c.pid == Proposition.id)
             .where(~has_child)
-            .order_by(best_scores.c.bm25.asc())
+            .order_by(best_scores.c.bm25.asc())          # smallest→best
         )
-
     else:
-        # -------- 1-b  No user query ---------------------------------------
+        # --- 1-b  No user query ------------------------------
         stmt = (
             select(Proposition, literal_column("0.0").label("bm25"))
             .where(~has_child)
@@ -188,35 +188,38 @@ async def search_propositions_bm25(
     stmt = stmt.limit(candidate_pool)
 
     # --------------------------------------------------------
-    # 3  Execute & post-process
+    # 3  Execute & score in log-space
     # --------------------------------------------------------
     bind = {"q": q} if has_query else {}
     rows = (await session.execute(stmt, bind)).all()
     if not rows:
         return []
 
-    rel_scores: List[float] = []
-
+    rel_scores: list[float] = []
     now = datetime.now(timezone.utc)
-    for prop, raw_score in rows:
-        gamma = 1.0                         # default: no decay
-        if enable_decay:
-            dt = prop.created_at.replace(tzinfo=timezone.utc)
-            age_days = max((now - dt).total_seconds() / 86_400, 0.0)
-            alpha = prop.decay if prop.decay is not None else 0.0
-            gamma = math.exp(-alpha * K_DECAY * age_days)
 
-        # BM25: smaller is better ⇒ negate to make larger better,
-        #       but *after* dividing by γ so age penalty lowers rank.
-        score = -raw_score / gamma
+    for prop, raw_score in rows:
+        # -------- 3-a  log(BM25) (raw_score > 0) ------------
+        ln_raw = math.log(max(raw_score, EPS))          # smaller→more-negative
+
+        # -------- 3-b  log(time-decay) ----------------------
+        ln_gamma = 0.0                                  # ln(1) → no decay
+        if enable_decay:
+            dt        = prop.created_at.replace(tzinfo=timezone.utc)
+            age_days  = max((now - dt).total_seconds() / 86_400, 0.0)
+            alpha     = prop.decay if prop.decay is not None else 0.0
+            ln_gamma  = -alpha * K_DECAY * age_days     # γ = e^(…);  ln γ ≤ 0
+
+        # -------- 3-c  final score (larger-is-better) ------
+        # score = −ln(raw_score) + ln_gamma
+        score = -ln_raw + ln_gamma
         rel_scores.append(score)
 
     # --------------------------------------------------------
     # 4  Optional MMR diversification
     # --------------------------------------------------------
     if enable_mmr and len(rows) > 1:
-        # build documents only if we really need them
-        docs: List[str] = []
+        docs: list[str] = []
         for p, _ in rows:
             obs_concat = (
                 " ".join(o.content for o in p.observations[:10])
