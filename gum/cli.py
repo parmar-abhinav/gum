@@ -9,7 +9,7 @@ from gum.observers import Screen
 
 def parse_args():
     parser = argparse.ArgumentParser(description='GUM - A Python package with command-line interface')
-    parser.add_argument('--user-name', '-u', type=str, help='The user name to use', required=True)
+    parser.add_argument('--user-name', '-u', type=str, help='The user name to use')
     parser.add_argument('--query', '-q', type=str, help='Query to run')
     parser.add_argument('--limit', '-l', type=int, help='Limit the number of results', default=10)    
     parser.add_argument('--model', '-m', type=str, help='Model to use', default='gpt-4o-mini')
@@ -20,6 +20,11 @@ async def main():
     model = os.getenv('MODEL_NAME') or args.model
     print(f"User Name: {args.user_name}")    
     print(f"Using model: {model}")
+
+    # you need one or the other-
+    if args.user_name is None and args.query is None:
+        print("Please provide a user name or a query")
+        return
     
     if args.query is not None:
 

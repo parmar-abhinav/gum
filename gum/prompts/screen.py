@@ -10,4 +10,6 @@ SUMMARY_PROMPT = """Provide a detailed description of the actions occuring acros
 
 Include as much relevant detail as possible, but remain concise.
 
-Generate a handful of bullet points and reference *specific* actions the user is taking."""
+Generate a handful of bullet points and reference *specific* actions the user is taking.
+
+Keep in mind that that the content on the screen is what the user is viewing. It may not be what the user is actively doing, so practice caution when making assumptions."""

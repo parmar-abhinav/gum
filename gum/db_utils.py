@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
 import re
+from datetime import datetime, timezone
 from typing import List
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from sqlalchemy import MetaData, Table, literal_column, select, text, func, union_all
+from sqlalchemy import (
+    MetaData,
+    Table,
+    select,
+    literal_column,
+    text,
+    func,
+)
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -22,6 +30,10 @@ from .models import (
     observation_proposition,
 )
 
+# Constants
+K_DECAY = 2.0      # decay rate for recency adjustment
+LAMBDA = 0.5       # trade-off for MMR
+
 def build_fts_query(raw: str, mode: str = "OR") -> str:
     tokens = re.findall(r"\w+", raw.lower())
     if not tokens:
@@ -30,7 +42,7 @@ def build_fts_query(raw: str, mode: str = "OR") -> str:
         return f'"{" ".join(tokens)}"'
     elif mode == "OR":
         return " OR ".join(tokens)
-    else:                              # implicit AND
+    else:  # implicit AND
         return " ".join(tokens)
 
 def _has_child_subquery() -> select:
@@ -41,32 +53,6 @@ def _has_child_subquery() -> select:
         .exists()
     )
 
-# constants
-K_DECAY = 2.0     # decay rate for recency adjustment
-LAMBDA = 0.5      # trade-off for MMR
-
-import math
-import numpy as np
-from datetime import datetime, timezone
-from typing import List
-
-from sqlalchemy import (
-    MetaData,
-    Table,
-    select,
-    literal_column,
-    literal,
-    text,
-    func,
-)
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-
-K_DECAY  = 2      # whatever you used
-LAMBDA   = 0.5    # ditto
-EPS      = 1e-12  # protects log(0)
 
 async def search_propositions_bm25(
     session: AsyncSession,
@@ -187,70 +173,70 @@ async def search_propositions_bm25(
 
     stmt = stmt.limit(candidate_pool)
 
-    # --------------------------------------------------------
-    # 3  Execute & score in log-space
+   # --------------------------------------------------------
+    # 3  Execute & score
     # --------------------------------------------------------
     bind = {"q": q} if has_query else {}
     rows = (await session.execute(stmt, bind)).all()
     if not rows:
         return []
 
-    rel_scores: list[float] = []
+    # --- 3-a. Calculate initial scores ---
+    initial_scores: list[float] = []
     now = datetime.now(timezone.utc)
-
     for prop, raw_score in rows:
-        # -------- 3-a  log(BM25) (raw_score > 0) ------------
-        ln_raw = math.log(max(raw_score, EPS))          # smaller→more-negative
-
-        # -------- 3-b  log(time-decay) ----------------------
-        ln_gamma = 0.0                                  # ln(1) → no decay
+        relevance_score = -raw_score if has_query else 0.0
+        gamma = 0.0
         if enable_decay:
-            dt        = prop.created_at.replace(tzinfo=timezone.utc)
-            age_days  = max((now - dt).total_seconds() / 86_400, 0.0)
-            alpha     = prop.decay if prop.decay is not None else 0.0
-            ln_gamma  = -alpha * K_DECAY * age_days     # γ = e^(…);  ln γ ≤ 0
+            dt = prop.created_at.replace(tzinfo=timezone.utc)
+            age_days = max((now - dt).total_seconds() / 86_400, 0.0)
+            alpha = prop.decay if prop.decay is not None else 0.0
+            gamma = -alpha * K_DECAY * age_days
+        score = relevance_score * gamma
+        initial_scores.append(score)
 
-        # -------- 3-c  final score (larger-is-better) ------
-        # score = −ln(raw_score) + ln_gamma
-        score = -ln_raw + ln_gamma
-        rel_scores.append(score)
+    # normalize scores
+    final_scores_np = np.array(initial_scores)
+    min_score = np.min(final_scores_np)
+    max_score = np.max(final_scores_np)
+    
+    if max_score > min_score:
+        final_scores_np = (final_scores_np - min_score) / (max_score - min_score)
+    else:
+        final_scores_np = np.full_like(final_scores_np, 0.5)
 
-    # --------------------------------------------------------
-    # 4  Optional MMR diversification
-    # --------------------------------------------------------
+    final_scores = final_scores_np.tolist()
+
     if enable_mmr and len(rows) > 1:
         docs: list[str] = []
         for p, _ in rows:
-            obs_concat = (
-                " ".join(o.content for o in list(p.observations)[:10])
-                if include_observations else ""
-            )
-            docs.append(f"{p.text} {p.reasoning} {obs_concat}")
+            doc_parts = [p.text, p.reasoning]
+            if include_observations and p.observations:
+                obs_concat = " ".join(o.content for o in list(p.observations)[:10])
+                doc_parts.append(obs_concat)
+            docs.append(" ".join(doc_parts))
 
         vecs = TfidfVectorizer().fit_transform(docs)
+        
+        selected_idxs = []
+        mmr_scores = np.array(final_scores)
 
-        selected_idxs, final_scores = [], []
         while len(selected_idxs) < min(limit, len(rows)):
             if not selected_idxs:
-                idx = int(np.argmax(rel_scores))
+                idx = int(np.argmax(mmr_scores))
             else:
                 sims = cosine_similarity(vecs, vecs[selected_idxs]).max(axis=1)
-                mmr  = LAMBDA * np.array(rel_scores) - (1 - LAMBDA) * sims
-                mmr[selected_idxs] = -np.inf
+                mmr = LAMBDA * mmr_scores - (1 - LAMBDA) * sims
+                mmr[selected_idxs] = -np.inf 
                 idx = int(np.argmax(mmr))
+
             selected_idxs.append(idx)
-            final_scores.append(rel_scores[idx])
-
     else:
-        # no MMR → pick rows by simple order
-        if has_query:                                 # real query → sort by score
-            idxs = np.argsort(rel_scores)[::-1][:limit]
-        else:                                         # no query → SQL already sorted
-            idxs = list(range(min(limit, len(rows))))
-        selected_idxs   = idxs
-        final_scores    = [rel_scores[i] for i in idxs]
+        idxs = np.argsort(final_scores)[::-1][:limit]
+        selected_idxs = idxs.tolist()
 
-    return [(rows[i][0], final_scores[pos]) for pos, i in enumerate(selected_idxs)]
+    result = [(rows[i][0], final_scores[i]) for i in selected_idxs]    
+    return result
 
 async def get_related_observations(
     session: AsyncSession,

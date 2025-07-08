@@ -138,14 +138,12 @@ class Screen(Observer):
 
     Attributes:
         _CAPTURE_FPS (int): Frames per second for screen capture.
-        _PERIODIC_SEC (int): Seconds between periodic screenshots.
         _DEBOUNCE_SEC (int): Seconds to wait before processing an interaction.
         _MON_START (int): Index of first real display in mss.
     """
 
     _CAPTURE_FPS: int = 10
-    _PERIODIC_SEC: int = 30
-    _DEBOUNCE_SEC: int = 3
+    _DEBOUNCE_SEC: int = 2
     _MON_START: int = 1     # first real display in mss
 
     # ─────────────────────────────── construction
@@ -285,7 +283,7 @@ class Screen(Observer):
         )
         return path
 
-    async def _process_and_emit(self, before_path: str, after_path: str | None) -> None:
+    async def _process_and_emit(self, before_path: str, after_path: str) -> None:
         """Process screenshots and emit an update.
         
         Args:
@@ -298,17 +296,16 @@ class Screen(Observer):
 
         # async OpenAI calls
         try:
-            transcription = await self._call_gpt_vision(self.transcription_prompt, [before_path])
+            transcription = await self._call_gpt_vision(self.transcription_prompt, [before_path, after_path])
         except Exception as exc:                                        # pragma: no cover
             transcription = f"[transcription failed: {exc}]"
 
-        summary = ""
-        if after_path:
-            prev_paths.append(after_path)
-            try:
-                summary = await self._call_gpt_vision(self.summary_prompt, prev_paths)
-            except Exception as exc:                                    # pragma: no cover
-                summary = f"[summary failed: {exc}]"
+        prev_paths.append(before_path)
+        prev_paths.append(after_path)
+        try:
+            summary = await self._call_gpt_vision(self.summary_prompt, prev_paths)
+        except Exception as exc:                                    # pragma: no cover
+            summary = f"[summary failed: {exc}]"
 
         txt = (transcription + summary).strip()
         await self.update_queue.put(Update(content=txt, content_type="input_text"))
@@ -340,7 +337,6 @@ class Screen(Observer):
             log.propagate = False
 
         CAP_FPS  = self._CAPTURE_FPS
-        PERIOD   = self._PERIODIC_SEC
         DEBOUNCE = self._DEBOUNCE_SEC
 
         loop = asyncio.get_running_loop()
@@ -416,7 +412,6 @@ class Screen(Observer):
 
             # ---- main capture loop ----
             log.info(f"Screen observer started — guarding {self._guard or '∅'}")
-            last_periodic = time.time()
 
             while self._running:                         # flag from base class
                 t0 = time.time()
@@ -426,19 +421,6 @@ class Screen(Observer):
                     frame = await asyncio.to_thread(sct.grab, m)
                     async with self._frame_lock:
                         self._frames[idx] = frame
-
-                # periodic snapshots
-                if not self._skip() and t0 - last_periodic >= PERIOD:
-                    last_periodic = t0
-                    for idx, m in enumerate(mons, 1):
-                        frame = await asyncio.to_thread(sct.grab, m)
-                        path  = await self._save_frame(frame, f"periodic_m{idx}")
-                        # only transcribe single periodic frame (no summary)
-                        try:
-                            txt = await self._call_gpt_vision(self.transcription_prompt, [path])
-                        except Exception as exc:      # pragma: no cover
-                            txt = f"[periodic transcription failed: {exc}]"
-                        await self.update_queue.put(Update(content=txt, content_type="input_text"))
 
                 # fps throttle
                 dt = time.time() - t0

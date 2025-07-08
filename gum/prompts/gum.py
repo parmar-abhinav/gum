@@ -1,6 +1,6 @@
 AUDIT_PROMPT = """You are a data privacy compliance assistant for a large language model (LLM). 
 
-Here are some past interactions the user had with an LLM
+Here are some past interactions {user_name} had with an LLM
 
 ## Past Interactions
 
@@ -8,14 +8,14 @@ Here are some past interactions the user had with an LLM
 
 ## Task
 
-The user currently is looking at the following:
+{user_name} currently is looking at the following:
 
 User Input
 ---
 {user_input}
 ---
 
-Given the user's input, analyze and respond in structured JSON format with the following fields:
+Given {user_name}'s input, analyze and respond in structured JSON format with the following fields:
 
 1. `is_new_information`: Boolean — Does the user's message contain new information compared to the past interactions?
 2. `data_type`: String — What type of data is being disclosed (e.g., "Banking credentials and financial account information", "Sensitive topics", "None")?
@@ -37,7 +37,7 @@ PROPOSE_PROMPT = """You are a helpful assistant tasked with analyzing user behav
 
 # Analysis
 
-Using a transcription of user activity, analyze {user_name}'s current activities, behavior, and preferences. Draw insightful, concrete conclusions.
+Using a transcription of {user_name}'s activity, analyze {user_name}'s current activities, behavior, and preferences. Draw insightful, concrete conclusions.
 
 To support effective information retrieval (e.g., using BM25), your analysis must **explicitly identify and refer to specific named entities** mentioned in the transcript. This includes applications, websites, documents, people, organizations, tools, and any other proper nouns. Avoid general summaries—**use exact names** wherever possible, even if only briefly referenced.
 
@@ -83,7 +83,13 @@ Below is a set of transcribed actions and interactions that {user_name} has perf
 
 # Task
 
-Generate **5 distinct, well-supported propositions** about {user_name}, each grounded in the transcript. Vary confidence levels, but ensure each claim includes references to specific named entities mentioned in the input.
+Generate **5 distinct, well-supported propositions** about {user_name}, each grounded in the transcript. 
+
+Be conservative in your confidence estimates. Just because an application appears on {user_name}'s screen does not mean they have deeply engaged with it. They may have only glanced at it for a second, making it difficult to draw strong conclusions. 
+
+Assign high confidence scores (e.g., 8-10) only when the transcriptions provide explicit, direct evidence that {user_name} is actively engaging with the content in a meaningful way. Keep in mind that that the content on the screen is what the user is viewing. It may not be what the user is actively doing, so practice caution when making assumptions.
+
+Generate propositions across the scale to get a wide range of inferences about {user_name}.  
 
 Return your results in this exact JSON format:
 
@@ -101,7 +107,7 @@ Return your results in this exact JSON format:
 
 REVISE_PROMPT = """You are an expert analyst. A cluster of similar propositions are shown below, followed by their supporting observations.
 
-Your job is to produce a **final set** of propositions that is clear, non-redundant, and captures everything about the user.
+Your job is to produce a **final set** of propositions that is clear, non-redundant, and captures everything about the user, {user_name}.
 
 To support information retrieval (e.g., with BM25), you must **explicitly identify and preserve all named entities** from the input wherever possible. These may include applications, websites, documents, people, organizations, tools, or any other specific proper nouns mentioned in the original propositions or their evidence.
 
@@ -160,6 +166,8 @@ Score: **1 (short-lived)** to **10 (long-term relevance or behavioral pattern)**
 {body}
 
 # Output
+
+Keep in mind that that the input is what the {user_name} is viewing. It may not be what the {user_name} is actively doing, so practice caution when making assumptions.
 
 Return **only** JSON in the following format:
 
