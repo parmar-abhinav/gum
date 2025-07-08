@@ -6,7 +6,7 @@ ALWAYS include all the application names, file paths, and website URLs in your t
 
 Create a FINAL structured markdown transcription."""
 
-SUMMARY_PROMPT = """Provide a detailed description of the actions occuring across the provided images. 
+SUMMARY_PROMPT = """Provide a detailed description of the actions occuring across the provided images. The images are in the order they were taken.
 
 Include as much relevant detail as possible, but remain concise.
 
