@@ -7,28 +7,47 @@ import asyncio
 from gum import gum
 from gum.observers import Screen
 
+class QueryAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        if values is None:
+            setattr(namespace, self.dest, '')
+        else:
+            setattr(namespace, self.dest, values)
+
 def parse_args():
     parser = argparse.ArgumentParser(description='GUM - A Python package with command-line interface')
     parser.add_argument('--user-name', '-u', type=str, help='The user name to use')
-    parser.add_argument('--query', '-q', type=str, help='Query to run')
-    parser.add_argument('--limit', '-l', type=int, help='Limit the number of results', default=10)    
-    parser.add_argument('--model', '-m', type=str, help='Model to use', default='gpt-4o-mini')
-    return parser.parse_args()
+    
+    parser.add_argument(
+        '--query', '-q',
+        nargs='?',
+        action=QueryAction,
+        help='Query the GUM with an optional query string',
+    )
+    
+    parser.add_argument('--limit', '-l', type=int, help='Limit the number of results', default=10)
+    parser.add_argument('--model', '-m', type=str, help='Model to use')
+
+    args = parser.parse_args()
+
+    if not hasattr(args, 'query'):
+        args.query = None
+
+    return args
 
 async def main():
     args = parse_args()
-    model = os.getenv('MODEL_NAME') or args.model
-    print(f"User Name: {args.user_name}")    
-    print(f"Using model: {model}")
+
+    model = args.model or os.getenv('MODEL_NAME') or 'gpt-4o-mini'
+    user_name = args.user_name or os.getenv('USER_NAME')
 
     # you need one or the other-
-    if args.user_name is None and args.query is None:
-        print("Please provide a user name or a query")
+    if user_name is None and args.query is None:
+        print("Please provide a user name (as an argument, -u, or as an env variable) or a query (as an argument, -q)")
         return
     
     if args.query is not None:
-
-        gum_instance = gum(args.user_name, model)
+        gum_instance = gum(user_name, model)
         await gum_instance.connect_db()
         result = await gum_instance.query(args.query, limit=args.limit)
         
@@ -42,9 +61,9 @@ async def main():
                 print(f"Confidence: {prop.confidence:.2f}")
             print(f"Relevance Score: {score:.2f}")
             print("-" * 80)
-        
     else:
-        async with gum(args.user_name, model, Screen(model)) as gum_instance:
+        print(f"Listening to {user_name} with model {model}")
+        async with gum(user_name, model, Screen(model)) as gum_instance:
             await asyncio.Future()  # run forever (Ctrl-C to stop)
 
 def cli():

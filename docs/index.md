@@ -55,37 +55,92 @@ You can start a GUM server directly from the command line.
         > # name of the model you launched
         > export MODEL_NAME="model-org/model-name"
 
+        > # your full name
+        > export USER_NAME="Full Name"
+
         > # point this to the GUM multimodal model
         > export GUM_LM_API_BASE="base-url"
 
         > # (optionally) set an API key
         > export GUM_LM_API_KEY="None"
+
         ```
 
         Alternatively, we recommend using [SkyPilot](https://docs.skypilot.co/en/latest/docs/index.html) to serve and run your own models on the cloud. You can use the following [skypilot.yaml](https://github.com/GeneralUserModels/gum/blob/main/skypilot-tmp.yaml) file in the repo. You'll need to replace the HuggingFace token (HF_TOKEN) with your own. By default, we use Qwen 2.5 VL 32B (AWQ quanitized). A single H100 (80GB) should give you good enough throughput.
 
     === "OpenAI"
-        You can authenticate by setting the `OPENAI_API_KEY` env variable.
+        You can authenticate by setting the `OPENAI_API_KEY` and `USER_NAME` env variables.
 
         ```bash
         > export OPENAI_API_KEY="your-api-key-here"
+        > export USER_NAME="Full Name"
         ```
 
-    Start the GUM listening process up:
-
-    ```bash
-    > gum -u "Your Name"
-    ```
-
     !!! note "Required Permissions"
-        When you first run this command, your system will prompt you to grant accessibility and screen recording permissions to the application. You may need to restart the process a few times as you grant these permissions. This is necessary for GUM to observe your interactions and build its model.
+        Go to “System Settings” → “Privacy & Security” → “Accessibility” → turn on the “Terminal” option. This is necessary for GUM to observe your interactions and build its model when launched via the Terminal.
+        
+        When you first run the GUM (below), your system may also prompt you to grant accessibility and screen recording permissions to the application. You may need to restart the process a few times as you grant these permissions.
 
-    Once you're all done, go ahead and try querying your GUM to view propositions and observations:
+    Start the GUM listening process up through the Terminal app:
 
     ```bash
-    > gum -q "email"
+    > gum
     ```
 
+    Once you're all done, go ahead and try querying your GUM to view propositions and observations. You can query for recent propositions by just passing the -q flag through the CLI.
+
+    ```bash
+    > gum -q
+    ```
+
+    Output:
+    ```
+    Found 10 results:
+
+    Proposition: Omar Shaikh is currently actively engaged in developing and refining a Python application utilizing asynchronous programming with Observer patterns.
+    Reasoning: The transcription indicates that Omar is working with the file `gum.py`, which includes classes and methods for managing asynchronous tasks and observers, as seen in functions like `start_update_loop()` and `_update_loop()`. These methods suggest a focus on maintaining efficiency in processing updates from various observers, clearly indicative of software development practices related to asynchronous programming.
+    Confidence: 9.00
+    Relevance Score: 0.50
+    --------------------------------------------------------------------------------
+
+    Proposition: Omar Shaikh deprioritizes longer or complex interactions with unnecessary dependencies, focusing on streamlined application performance instead.
+    Reasoning: From the transcript, he is primarily concerned with efficient resource management in `gum.py`, such as ensuring active tasks are being handled correctly, which is shown through his attentiveness to cleaning up resources in `async def __aexit__`. This behavior implies he prioritizes simplicity and efficiency over possible more complicated implementations.
+    Confidence: 8.00
+    Relevance Score: 0.50
+    --------------------------------------------------------------------------------
+
+    Proposition: Omar Shaikh demonstrates a clear preference for using Google AI Studio for coding support and suggestions.
+    Reasoning: Evidence from the transcript highlights that Omar interacts with Google AI Studio to receive suggestions for Python code modifications, specifically aimed at improving the codebase he is working on. This indicates a strong reliance on Google AI Studio resources, reinforcing his inclination towards engaging AI-assisted coding tools in his work.
+    Confidence: 8.00
+    Relevance Score: 0.50
+
+    [...]
+    ```
+
+    Optionally, you can pass a query string and the number of results you want back (by default, 10). In the example below, I want to find things that are related to work on GUMs. 
+
+    ```bash
+    > gum -q "gum" -l 10
+    ```
+
+    Output:
+    ```
+    Found 10 results:
+
+
+    Proposition: Omar Shaikh is executing coding projects, specifically troubleshooting errors in his Python scripts, such as resolving 'TypeError: 'InstrumentedSet' object is not subscriptable' related to the GUM application.
+    Reasoning: The terminal logs reflecting the traceback error during execution of the `gum` script reveal that Omar is engaged in debugging activities within his coding project.
+    Confidence: 9.00
+    Relevance Score: 0.39
+    --------------------------------------------------------------------------------
+
+    Proposition: Omar Shaikh is actively developing a Python-based application called 'gum'.
+    Reasoning: The terminal output shows that Omar is working within a project directory that includes `gum.py`, `models.py`, and other related files. This indicates a focused effort on a specific software project, likely centered on artificial intelligence given the context of named modules and functionality updates.
+    Confidence: 9.00
+    Relevance Score: 0.11
+
+    [...]
+    ```
 
 ## Applications
 

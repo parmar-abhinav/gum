@@ -192,10 +192,10 @@ async def search_propositions_bm25(
             age_days = max((now - dt).total_seconds() / 86_400, 0.0)
             alpha = prop.decay if prop.decay is not None else 0.0
             gamma = -alpha * K_DECAY * age_days
-        score = relevance_score * gamma
+
+        score = relevance_score * math.exp(gamma)
         initial_scores.append(score)
 
-    # normalize scores
     final_scores_np = np.array(initial_scores)
     min_score = np.min(final_scores_np)
     max_score = np.max(final_scores_np)
