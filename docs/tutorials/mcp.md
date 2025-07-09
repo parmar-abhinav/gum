@@ -2,18 +2,18 @@
 
 ## I just want to set up the MCP
 
-First, you'll need to set up the GUM in general, and have it build some sense of your context. To do this, follow the instructions on [the front page here.](../index.md). You'll also need a client that supports MCP (e.g. the Claude Desktop app).
+First, you'll need to set up the GUM in general, and have it build some sense of your context. To do this, follow the instructions on [the front page here.](../index.md) You'll also need a client that supports MCP (e.g. the Claude Desktop app).
 
-Once you're done with that, just clone the [MCP Repository](https://github.com/GeneralUserModels/gum-mcp) and run the following:
+Once you're done with that, just clone the [MCP Repository](https://github.com/GeneralUserModels/gumcp) and run the following:
 
 ```bash
-> git clone git@github.com:GeneralUserModels/gum-mcp.git
-> cd gum-mcp
+> git clone git@github.com:GeneralUserModels/gumcp.git
+> cd gumcp
 > # maybe create a python environment :)
 > pip install --editable .
 ```
 
-Create a .env file with your environment variables. All you need is a user name in the file (e.g.```USER_NAME="Omar Shaikh"```). In sum, the contents of your .env file looks something like this:
+Once you're in the gumcp folder, create a .env file with your environment variables. All you need is a user name in the file (e.g.```USER_NAME="Omar Shaikh"```). In sum, the contents of your .env file looks something like this:
 
 ```bash
 USER_NAME="Omar Shaikh"
