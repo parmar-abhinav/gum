@@ -3,6 +3,7 @@
 data
 examples
 skypilot.yaml
+test_gum.py
 
 # Python
 __pycache__

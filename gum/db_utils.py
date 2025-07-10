@@ -247,10 +247,11 @@ async def get_related_observations(
 
     stmt = (
         select(Observation)
-        .join(Observation.propositions)
+        .join(observation_proposition)
+        .join(Proposition)
         .where(Proposition.id == proposition_id)
         .order_by(Observation.created_at.desc())
-        .limit(limit)  # Use the limit parameter
+        .limit(limit)
     )
     result = await session.execute(stmt)
     return result.scalars().all()

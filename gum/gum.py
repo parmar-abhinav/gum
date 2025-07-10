@@ -494,9 +494,16 @@ class gum:
                 return
 
             session.add(observation)
-            await session.flush()
+            await session.flush() # Observation gets its ID
 
             pool = await self._generate_and_search(session, update, observation)
+
+            if pool:
+                self.logger.info(f"Linking observation to {len(pool)} candidate propositions.")
+                for prop in pool:
+                    await self._attach_obs_if_missing(prop, observation, session)
+                await session.flush()
+
             identical, similar, different = await self._filter_propositions(pool)
 
             self.logger.info("Applying proposition updates...")
