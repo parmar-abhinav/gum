@@ -11,9 +11,9 @@ First, you'll need to set up the GUM in general and have it build some sense of 
     sudo ln -s ~/.local/bin/uv /usr/local/bin/uv
     ```
 
-### Option 1: One-click Desktop Extention (DXT).
+### Option 1: One-click Desktop Extension (DXT)
 
-DXTs are [extention files](https://github.com/anthropics/dxt) that make the MCP setup really easy. First, make sure the Claude desktop app is updated! Download the .dxt file from [the releases page here](https://github.com/GeneralUserModels/gumcp/releases) and just double-click (or drag it into the extentions page in the Claude Desktop app; Claude > Settings > Extentions). You'll be asked to provide your full name so the GUM knows who you are. Don't forget to enable the extention, and you'll be good to go!
+DXTs are [extension files](https://github.com/anthropics/dxt) that make the MCP setup really easy. First, make sure the Claude desktop app is updated! Download the .dxt file from [the releases page here](https://github.com/GeneralUserModels/gumcp/releases) and just double-click (or drag it into the extensions page in the Claude Desktop app; Claude > Settings > Extensions). You'll be asked to provide your full name so the GUM knows who you are. Don't forget to enable the extension, and you'll be good to go!
 
 ### Option 2: Manual Setup
 
