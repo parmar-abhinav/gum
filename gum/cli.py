@@ -4,6 +4,7 @@ load_dotenv(find_dotenv(usecwd=True))
 import os
 import argparse
 import asyncio
+import shutil  # Add this import for deleting directories
 from gum import gum
 from gum.observers import Screen
 
@@ -27,6 +28,7 @@ def parse_args():
     
     parser.add_argument('--limit', '-l', type=int, help='Limit the number of results', default=10)
     parser.add_argument('--model', '-m', type=str, help='Model to use')
+    parser.add_argument('--reset-cache', action='store_true', help='Reset the GUM cache and exit')  # Add this line
 
     args = parser.parse_args()
 
@@ -37,6 +39,16 @@ def parse_args():
 
 async def main():
     args = parse_args()
+
+    # Handle --reset-cache before anything else
+    if getattr(args, 'reset_cache', False):
+        cache_dir = os.path.expanduser('~/.cache/gum/')
+        if os.path.exists(cache_dir):
+            shutil.rmtree(cache_dir)
+            print(f"Deleted cache directory: {cache_dir}")
+        else:
+            print(f"Cache directory does not exist: {cache_dir}")
+        return
 
     model = args.model or os.getenv('MODEL_NAME') or 'gpt-4o-mini'
     user_name = args.user_name or os.getenv('USER_NAME')
