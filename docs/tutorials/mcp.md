@@ -4,7 +4,7 @@
 
 First, you'll need to set up the GUM in general and have it build some sense of your context. To do this, follow the instructions on [the front page here.](../index.md). You'll also need a client that supports MCP. One example client is the MacOS Claude Desktop app, which you can download [here](https://claude.ai/download). The Claude desktop app requires the uv package manager for MCP, so you'll need to follow [the instructions on the uv website](https://docs.astral.sh/uv/getting-started/installation/) (or simply ```brew install uv```).
 
-!!! note "If you didn't use brew, make sure sure uv is installed _globally_"
+!!! note "If you didn't use brew, make sure uv is installed _globally_"
     Annoyingly, some apps (Claude) don't look at your local PATH. So if you didn't use brew, your uv might be in your local bin ```~/.local/bin/uv```. You can test this by running ```which uv```. Luckily, you can just set a symlink to fix this:
 
     ```
@@ -13,7 +13,7 @@ First, you'll need to set up the GUM in general and have it build some sense of 
 
 ### Option 1: One-click .dxt file
 
-Download the .dxt file from the releases page here and just double-click. Make sure you've updated Claude to the lastest version.
+Download the .dxt file from the releases page here and just double-click. Make sure you've updated Claude to the latest version.
 
 ### Option 2: Manual Setup
 
@@ -24,7 +24,7 @@ Clone the [MCP Repository](https://github.com/GeneralUserModels/gumcp) and run t
 > cd gumcp
 ```
 
-In the gumcp folder, create a .env file with your environment variables. All you need is a user name in the file (e.g.```USER_NAME="Omar Shaikh"```). In sum, the contents of your .env file looks something like this:
+In the gumcp folder, create a .env file with your environment variables. All you need is a user name in the file (e.g.```USER_NAME="Omar Shaikh"```). In sum, the contents of your .env file look something like this:
 
 ```bash
 USER_NAME="Omar Shaikh"
@@ -43,4 +43,4 @@ The MCP should then be enabled in the Claude app!
 
 ## Tutorial
 
-(coming soon: a walkthough on how this was built!)
+(coming soon: a walkthrough on how this was built!)
