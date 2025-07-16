@@ -4,7 +4,20 @@
 
 First, you'll need to set up the GUM in general and have it build some sense of your context. To do this, follow the instructions on [the front page here.](../index.md). You'll also need a client that supports MCP. One example client is the MacOS Claude Desktop app, which you can download [here](https://claude.ai/download). The Claude desktop app requires the uv package manager for MCP, so you'll need to follow [the instructions on the uv website](https://docs.astral.sh/uv/getting-started/installation/) (or simply ```brew install uv```).
 
-Once you're done with that, just clone the [MCP Repository](https://github.com/GeneralUserModels/gumcp) and run the following:
+!!! note "If you didn't use brew, make sure sure uv is installed _globally_"
+    Annoyingly, some apps (Claude) don't look at your local PATH. So if you didn't use brew, your uv might be in your local bin ```~/.local/bin/uv```. You can test this by running ```which uv```. Luckily, you can just set a symlink to fix this:
+
+    ```
+    sudo ln -s ~/.local/bin/uv /usr/local/bin/uv
+    ```
+
+### Option 1: One-click .dxt file
+
+Download the .dxt file from the releases page here and just double-click. Make sure you've updated Claude to the lastest version.
+
+### Option 2: Manual Setup
+
+Clone the [MCP Repository](https://github.com/GeneralUserModels/gumcp) and run the following:
 
 ```bash
 > git clone git@github.com:GeneralUserModels/gumcp.git
