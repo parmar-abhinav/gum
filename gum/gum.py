@@ -31,6 +31,7 @@ from .schemas import (
     AuditSchema
 )
 from gum.prompts.gum import AUDIT_PROMPT, PROPOSE_PROMPT, REVISE_PROMPT, SIMILAR_PROMPT
+from .batcher import ObservationBatcher
 
 class gum:
     """A class for managing general user models.
@@ -69,6 +70,9 @@ class gum:
         audit_enabled: bool = False,
         api_base: str | None = None,
         api_key: str | None = None,
+        use_batched_client: bool = True,
+        batch_interval_hours: float = 0.08,
+        max_batch_size: int = 50,
     ):
         # basic paths
         data_directory = os.path.expanduser(data_directory)
@@ -79,6 +83,11 @@ class gum:
         self.observers: list[Observer] = list(observers)
         self.model = model
         self.audit_enabled = audit_enabled
+
+        # batching configuration
+        self.use_batched_client = use_batched_client
+        self.batch_interval_hours = batch_interval_hours
+        self.max_batch_size = max_batch_size
 
         # logging
         self.logger = logging.getLogger("gum")
@@ -104,15 +113,30 @@ class gum:
         self._db_name        = db_name
         self._data_directory = data_directory
 
+        # Initialize batcher if enabled
+        if self.use_batched_client:
+            self.batcher = ObservationBatcher(
+                data_directory=data_directory,
+                batch_interval_hours=batch_interval_hours,
+                max_batch_size=max_batch_size
+            )
+        else:
+            self.batcher = None
+
         self._update_sem = asyncio.Semaphore(max_concurrent_updates)
         self._tasks: set[asyncio.Task] = set()
         self._loop_task: asyncio.Task | None = None
+        self._batch_task: asyncio.Task | None = None
         self.update_handlers: list[Callable[[Observer, Update], None]] = []
 
     def start_update_loop(self):
         """Start the asynchronous update loop for processing observer updates."""
         if self._loop_task is None:
             self._loop_task = asyncio.create_task(self._update_loop())
+            
+        # Start batch processing if enabled
+        if self.use_batched_client and self.batcher and self._batch_task is None:
+            self._batch_task = asyncio.create_task(self._batch_processing_loop())
 
     async def stop_update_loop(self):
         """Stop the asynchronous update loop and clean up resources."""
@@ -123,6 +147,18 @@ class gum:
             except asyncio.CancelledError:
                 pass
             self._loop_task = None
+            
+        # Stop batch processing if enabled
+        if self._batch_task:
+            self._batch_task.cancel()
+            try:
+                await self._batch_task
+            except asyncio.CancelledError:
+                pass
+            self._batch_task = None
+            
+        if self.batcher:
+            await self.batcher.stop()
 
     async def connect_db(self):
         """Initialize the database connection if not already connected."""
@@ -139,6 +175,11 @@ class gum:
         """
         await self.connect_db()
         self.start_update_loop()
+        
+        # Start batcher if enabled
+        if self.batcher:
+            await self.batcher.start()
+            
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -181,6 +222,91 @@ class gum:
 
                 t = asyncio.create_task(self._run_with_gate(obs, upd))
                 self._tasks.add(t)
+
+    async def _batch_processing_loop(self):
+        """Process batched observations periodically to reduce API calls."""
+        while True:
+            try:
+                # Wait for the batch interval
+                await asyncio.sleep(self.batch_interval_hours * 3600)
+                
+                # Get pending observations
+                batch = self.batcher.get_batch()
+                if batch:
+                    self.logger.info(f"Processing batch of {len(batch)} observations")
+                    await self._process_batch(batch)
+                else:
+                    self.logger.debug("No observations to process in this batch")
+                    
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"Error in batch processing loop: {e}")
+                await asyncio.sleep(60)  # Wait a minute before retrying
+
+    async def _process_batch(self, batched_observations):
+        """Process a batch of observations together to reduce API calls."""
+        if not batched_observations:
+            return
+            
+        self.logger.info(f"Processing {len(batched_observations)} observations in batch")
+        
+        # Combine all observations into a single content for analysis
+        combined_content = []
+        observation_ids = []
+        
+        for obs in batched_observations:
+            combined_content.append(f"[{obs.observer_name}] {obs.content}")
+            observation_ids.append(obs.id)
+            
+        combined_text = "\n\n".join(combined_content)
+        
+        # Create a combined update
+        combined_update = Update(
+            content=combined_text,
+            content_type="text"
+        )
+        
+        try:
+            async with self._session() as session:
+                # Create observations in database
+                observations = []
+                for obs in batched_observations:
+                    observation = Observation(
+                        observer_name=obs.observer_name,
+                        content=obs.content,
+                        content_type=obs.content_type,
+                    )
+                    session.add(observation)
+                    observations.append(observation)
+                
+                await session.flush()
+                
+                # Process the combined content
+                pool = await self._generate_and_search(session, combined_update, observations[0])
+                
+                if pool:
+                    self.logger.info(f"Linking batch observations to {len(pool)} candidate propositions.")
+                    for prop in pool:
+                        for obs in observations:
+                            await self._attach_obs_if_missing(prop, obs, session)
+                    await session.flush()
+
+                identical, similar, different = await self._filter_propositions(pool)
+
+                self.logger.info("Applying proposition updates for batch...")
+                await self._handle_identical(session, identical, observations[0])
+                await self._handle_similar(session, similar, observations[0])
+                await self._handle_different(session, different, observations[0])
+                
+                # Mark observations as processed
+                self.batcher.mark_processed(observation_ids)
+                
+                self.logger.info(f"Completed processing batch of {len(batched_observations)} observations")
+                
+        except Exception as e:
+            self.logger.error(f"Error processing batch: {e}")
+            # Don't mark as processed if there was an error
 
     async def _run_with_gate(self, observer: Observer, update: Update):
         """Wrapper that enforces max_concurrent_updates.
@@ -483,6 +609,17 @@ class gum:
     async def _default_handler(self, observer: Observer, update: Update) -> None:
         self.logger.info(f"Processing update from {observer.name}")
 
+        # If batching is enabled, add to batch instead of processing immediately
+        if self.use_batched_client and self.batcher:
+            observation_id = self.batcher.add_observation(
+                observer_name=observer.name,
+                content=update.content,
+                content_type=update.content_type
+            )
+            self.logger.info(f"Added observation {observation_id} to batch (pending: {self.batcher.get_pending_count()})")
+            return
+
+        # Original processing logic for non-batched mode
         async with self._session() as session:
             observation = Observation(
                 observer_name=observer.name,
