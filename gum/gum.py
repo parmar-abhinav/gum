@@ -71,7 +71,7 @@ class gum:
         api_base: str | None = None,
         api_key: str | None = None,
         use_batched_client: bool = True,
-        batch_interval_hours: float = 0.08,
+        batch_interval_hours: float = 1,
         max_batch_size: int = 50,
     ):
         # basic paths

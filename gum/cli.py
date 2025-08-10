@@ -55,7 +55,7 @@ async def main():
 
     # Batching configuration
     use_batched_client = os.getenv('USE_BATCHED_CLIENT', 'true').lower() == 'true'
-    batch_interval_hours = float(os.getenv('BATCH_INTERVAL_HOURS', '0.08'))
+    batch_interval_hours = float(os.getenv('BATCH_INTERVAL_HOURS', '1'))
     max_batch_size = int(os.getenv('MAX_BATCH_SIZE', '50'))
 
     # you need one or the other

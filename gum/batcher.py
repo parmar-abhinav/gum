@@ -20,7 +20,7 @@ class BatchedObservation:
 class ObservationBatcher:
     """Handles batching of observations to reduce API calls."""
     
-    def __init__(self, data_directory: str, batch_interval_hours: float = 0.08, max_batch_size: int = 50):
+    def __init__(self, data_directory: str, batch_interval_hours: float = 1, max_batch_size: int = 50):
         self.data_directory = Path(data_directory)
         self.batch_interval_hours = batch_interval_hours
         self.max_batch_size = max_batch_size
