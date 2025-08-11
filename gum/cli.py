@@ -29,6 +29,11 @@ def parse_args():
     parser.add_argument('--limit', '-l', type=int, help='Limit the number of results', default=10)
     parser.add_argument('--model', '-m', type=str, help='Model to use')
     parser.add_argument('--reset-cache', action='store_true', help='Reset the GUM cache and exit')  # Add this line
+    
+    # Batching configuration arguments
+    parser.add_argument('--use-batched-client', action='store_true', help='Enable batched client processing')
+    parser.add_argument('--batch-interval-hours', type=float, help='Hours between batch processing')
+    parser.add_argument('--max-batch-size', type=int, help='Maximum number of observations per batch')
 
     args = parser.parse_args()
 
@@ -53,10 +58,11 @@ async def main():
     model = args.model or os.getenv('MODEL_NAME') or 'gpt-4o-mini'
     user_name = args.user_name or os.getenv('USER_NAME')
 
-    # Batching configuration
-    use_batched_client = os.getenv('USE_BATCHED_CLIENT', 'true').lower() == 'true'
-    batch_interval_hours = float(os.getenv('BATCH_INTERVAL_HOURS', '1'))
-    max_batch_size = int(os.getenv('MAX_BATCH_SIZE', '50'))
+    # Batching configuration - follow same pattern as other args
+    use_batched_client = args.use_batched_client or os.getenv('USE_BATCHED_CLIENT', 'false').lower() == 'true'
+    
+    batch_interval_hours = args.batch_interval_hours or float(os.getenv('BATCH_INTERVAL_HOURS', '1'))
+    max_batch_size = args.max_batch_size or int(os.getenv('MAX_BATCH_SIZE', '50'))
 
     # you need one or the other
     if user_name is None and args.query is None:
