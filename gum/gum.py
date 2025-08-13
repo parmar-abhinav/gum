@@ -69,7 +69,6 @@ class gum:
         audit_enabled: bool = False,
         api_base: str | None = None,
         api_key: str | None = None,
-        use_batched_client: bool = True,
         batch_interval_hours: float = 1,
         max_batch_size: int = 50,
     ):
@@ -84,7 +83,6 @@ class gum:
         self.audit_enabled = audit_enabled
 
         # batching configuration
-        self.use_batched_client = use_batched_client
         self.batch_interval_hours = batch_interval_hours
         self.max_batch_size = max_batch_size
 
@@ -113,15 +111,11 @@ class gum:
         self._data_directory = data_directory
 
         # Initialize batcher if enabled
-        if self.use_batched_client:
-            self.batcher = ObservationBatcher(
-                data_directory=data_directory,
-                batch_interval_hours=batch_interval_hours,
-                max_batch_size=max_batch_size
-            )
-        else:
-            self.batcher = None
-
+        self.batcher = ObservationBatcher(
+            data_directory=data_directory,
+            batch_interval_hours=batch_interval_hours,
+            max_batch_size=max_batch_size
+        )
 
         self._loop_task: asyncio.Task | None = None
         self._batch_task: asyncio.Task | None = None
@@ -496,6 +490,7 @@ class gum:
         if not similar:
             return
 
+        # Collect all observations from similar propositions
         rel_obs = {
             o
             for p in similar
@@ -503,28 +498,26 @@ class gum:
         }
         rel_obs.add(obs)
 
+        # Generate revised propositions
         revised_items = await self._revise_propositions(list(rel_obs), similar)
-        newest_version = max(p.version for p in similar)
-        parent_groups = {p.revision_group for p in similar}
-        if len(parent_groups) == 1:
-            revision_group = parent_groups.pop()
-        else:
-            revision_group = uuid4().hex
-
-        new_children: list[Proposition] = []
+        
+        # Delete all old similar propositions
+        for prop in similar:
+            await session.delete(prop)
+        
+        # Create new propositions to replace them
+        revision_group = str(uuid4())
         for item in revised_items:
-            child = Proposition(
+            new_prop = Proposition(
                 text=item["proposition"],
                 reasoning=item["reasoning"],
                 confidence=item.get("confidence"),
                 decay=item.get("decay"),
-                version=newest_version + 1,
+                version=1,  # Start fresh with version 1
                 revision_group=revision_group,
                 observations=rel_obs,
-                parents=set(similar),
             )
-            session.add(child)
-            new_children.append(child)
+            session.add(new_prop)
 
         await session.flush()
 
