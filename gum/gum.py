@@ -69,7 +69,7 @@ class gum:
         audit_enabled: bool = False,
         api_base: str | None = None,
         api_key: str | None = None,
-        batch_interval_hours: float = 1,
+        batch_interval_minutes: float = 60,
         max_batch_size: int = 50,
     ):
         # basic paths
@@ -83,7 +83,7 @@ class gum:
         self.audit_enabled = audit_enabled
 
         # batching configuration
-        self.batch_interval_hours = batch_interval_hours
+        self.batch_interval_minutes = batch_interval_minutes
         self.max_batch_size = max_batch_size
 
         # logging
@@ -113,7 +113,7 @@ class gum:
         # Initialize batcher if enabled
         self.batcher = ObservationBatcher(
             data_directory=data_directory,
-            batch_interval_hours=batch_interval_hours,
+            batch_interval_minutes=batch_interval_minutes,
             max_batch_size=max_batch_size
         )
 
@@ -216,7 +216,7 @@ class gum:
         while True:
             try:
                 # Wait for the batch interval
-                await asyncio.sleep(self.batch_interval_hours * 3600)
+                await asyncio.sleep(self.batch_interval_minutes * 60)
                 
                 # Get pending observations
                 batch = self.batcher.get_batch()
