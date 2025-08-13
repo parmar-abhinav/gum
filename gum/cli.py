@@ -4,7 +4,7 @@ load_dotenv(find_dotenv(usecwd=True))
 import os
 import argparse
 import asyncio
-import shutil  # Add this import for deleting directories
+import shutil  
 from gum import gum
 from gum.observers import Screen
 
@@ -29,6 +29,11 @@ def parse_args():
     parser.add_argument('--limit', '-l', type=int, help='Limit the number of results', default=10)
     parser.add_argument('--model', '-m', type=str, help='Model to use')
     parser.add_argument('--reset-cache', action='store_true', help='Reset the GUM cache and exit')  # Add this line
+    
+    # Batching configuration arguments
+    parser.add_argument('--use-batched-client', action='store_true', help='Enable batched client processing')
+    parser.add_argument('--batch-interval-hours', type=float, help='Hours between batch processing')
+    parser.add_argument('--max-batch-size', type=int, help='Maximum number of observations per batch')
 
     args = parser.parse_args()
 
@@ -53,7 +58,13 @@ async def main():
     model = args.model or os.getenv('MODEL_NAME') or 'gpt-4o-mini'
     user_name = args.user_name or os.getenv('USER_NAME')
 
-    # you need one or the other-
+    # Batching configuration - follow same pattern as other args
+    use_batched_client = args.use_batched_client or os.getenv('USE_BATCHED_CLIENT', 'false').lower() == 'true'
+    
+    batch_interval_hours = args.batch_interval_hours or float(os.getenv('BATCH_INTERVAL_HOURS', '1'))
+    max_batch_size = args.max_batch_size or int(os.getenv('MAX_BATCH_SIZE', '50'))
+
+    # you need one or the other
     if user_name is None and args.query is None:
         print("Please provide a user name (as an argument, -u, or as an env variable) or a query (as an argument, -q)")
         return
@@ -63,7 +74,7 @@ async def main():
         await gum_instance.connect_db()
         result = await gum_instance.query(args.query, limit=args.limit)
         
-        # pretty print confidences / propositions / number of items returned
+        # confidences / propositions / number of items returned
         print(f"\nFound {len(result)} results:")
         for prop, score in result:
             print(f"\nProposition: {prop.text}")
@@ -75,7 +86,19 @@ async def main():
             print("-" * 80)
     else:
         print(f"Listening to {user_name} with model {model}")
-        async with gum(user_name, model, Screen(model)) as gum_instance:
+        if use_batched_client:
+            print(f"Batching enabled: processing every {batch_interval_hours} hours (max {max_batch_size} observations per batch)")
+        else:
+            print("Batching disabled: processing observations immediately")
+            
+        async with gum(
+            user_name, 
+            model, 
+            Screen(model),
+            use_batched_client=use_batched_client,
+            batch_interval_hours=batch_interval_hours,
+            max_batch_size=max_batch_size
+        ) as gum_instance:
             await asyncio.Future()  # run forever (Ctrl-C to stop)
 
 def cli():
