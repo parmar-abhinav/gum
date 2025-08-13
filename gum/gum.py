@@ -69,7 +69,7 @@ class gum:
         audit_enabled: bool = False,
         api_base: str | None = None,
         api_key: str | None = None,
-        batch_interval_minutes: float = 60,
+        batch_interval_minutes: float = 2,
         max_batch_size: int = 50,
     ):
         # basic paths
@@ -254,7 +254,7 @@ class gum:
         # Create a combined update
         combined_update = Update(
             content=combined_text,
-            content_type="text"
+            content_type="input_text"
         )
         
         try:
