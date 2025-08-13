@@ -128,7 +128,7 @@ class gum:
             self._loop_task = asyncio.create_task(self._update_loop())
             
         # Start batch processing if enabled
-        if self.use_batched_client and self.batcher and self._batch_task is None:
+        if self._batch_task is None:
             self._batch_task = asyncio.create_task(self._batch_processing_loop())
 
     async def stop_update_loop(self):
