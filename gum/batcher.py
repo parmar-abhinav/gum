@@ -29,22 +29,14 @@ class ObservationBatcher:
         
         self.logger = logging.getLogger("gum.batcher")
         self._pending_observations: List[BatchedObservation] = []
-        self._batch_task: Optional[asyncio.Task] = None
         
     async def start(self):
         """Start the batching system."""
         self._load_pending_observations()
-        self._batch_task = asyncio.create_task(self._batch_loop())
         self.logger.info(f"Started batcher with {len(self._pending_observations)} pending observations")
         
     async def stop(self):
         """Stop the batching system."""
-        if self._batch_task:
-            self._batch_task.cancel()
-            try:
-                await self._batch_task
-            except asyncio.CancelledError:
-                pass
         self._save_pending_observations()
         self.logger.info("Stopped batcher")
         
@@ -113,31 +105,7 @@ class ObservationBatcher:
         
         self._save_pending_observations()
         self.logger.debug(f"Marked {len(observation_ids)} observations as processed")
-        
-    async def _batch_loop(self):
-        """Main batching loop that processes observations periodically."""
-        while True:
-            try:
-                # Wait for the batch interval
-                await asyncio.sleep(self.batch_interval_hours * 3600)
-                
-                # Get pending observations
-                batch = self.get_batch()
-                if batch:
-                    self.logger.info(f"Processing batch of {len(batch)} observations")
-                    # Signal that we have a batch ready
-                    # The main GUM class will handle the actual processing
-                    # For now, just log that we have a batch
-                    self.logger.info(f"Batch ready with {len(batch)} observations")
-                else:
-                    self.logger.debug("No observations to process in this batch")
-                    
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error(f"Error in batch loop: {e}")
-                await asyncio.sleep(60)  # Wait a minute before retrying
-                
+                        
     def _load_pending_observations(self):
         """Load pending observations from disk."""
         if self.batch_file.exists():
