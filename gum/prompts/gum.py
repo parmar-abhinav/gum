@@ -83,7 +83,7 @@ Below is a set of transcribed actions and interactions that {user_name} has perf
 
 # Task
 
-Generate **5 distinct, well-supported propositions** about {user_name}, each grounded in the transcript. 
+Generate **at least 5 distinct, well-supported propositions** about {user_name}, each grounded in the transcript. 
 
 Be conservative in your confidence estimates. Just because an application appears on {user_name}'s screen does not mean they have deeply engaged with it. They may have only glanced at it for a second, making it difficult to draw strong conclusions. 
 
