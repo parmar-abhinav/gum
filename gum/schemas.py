@@ -33,7 +33,7 @@ class PropositionItem(BaseModel):
 class PropositionSchema(BaseModel):
     propositions: List[PropositionItem] = Field(
         ...,
-        description="Up to five propositions"
+        description="Up to K propositions"
     )
     model_config = ConfigDict(extra="forbid")
 
