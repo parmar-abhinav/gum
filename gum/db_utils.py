@@ -26,7 +26,6 @@ from sqlalchemy.orm import selectinload
 from .models import (
     Observation,
     Proposition,
-    proposition_parent,
     observation_proposition,
 )
 
@@ -45,13 +44,7 @@ def build_fts_query(raw: str, mode: str = "OR") -> str:
     else:  # implicit AND
         return " ".join(tokens)
 
-def _has_child_subquery() -> select:
-    return (
-        select(literal_column("1"))
-        .select_from(proposition_parent)
-        .where(proposition_parent.c.parent_id == Proposition.id)
-        .exists()
-    )
+
 
 
 async def search_propositions_bm25(
@@ -74,7 +67,6 @@ async def search_propositions_bm25(
     # 1  Build candidate list
     # --------------------------------------------------------
     candidate_pool = limit * 10 if enable_mmr else limit
-    has_child      = _has_child_subquery()
 
     if has_query:
         fts_prop = Table("propositions_fts", MetaData())
@@ -143,14 +135,12 @@ async def search_propositions_bm25(
         stmt = (
             select(Proposition, best_scores.c.bm25)
             .join(best_scores, best_scores.c.pid == Proposition.id)
-            .where(~has_child)
             .order_by(best_scores.c.bm25.asc())          # smallest→best
         )
     else:
         # --- 1-b  No user query ------------------------------
         stmt = (
             select(Proposition, literal_column("0.0").label("bm25"))
-            .where(~has_child)
             .order_by(Proposition.created_at.desc())
         )
 

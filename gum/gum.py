@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Callable, List
 from .models import observation_proposition
+import traceback
 
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,7 +50,7 @@ class gum:
         audit_prompt (str, optional): Custom prompt for auditing.
         data_directory (str, optional): Directory for storing data. Defaults to "~/.cache/gum".
         db_name (str, optional): Name of the database file. Defaults to "gum.db".
-        max_concurrent_updates (int, optional): Maximum number of concurrent updates. Defaults to 4.
+
         verbosity (int, optional): Logging verbosity level. Defaults to logging.INFO.
         audit_enabled (bool, optional): Whether to enable auditing. Defaults to False.
     """
@@ -65,13 +66,11 @@ class gum:
         audit_prompt: str | None = None,
         data_directory: str = "~/.cache/gum",
         db_name: str = "gum.db",
-        max_concurrent_updates: int = 4,
         verbosity: int = logging.INFO,
         audit_enabled: bool = False,
         api_base: str | None = None,
         api_key: str | None = None,
-        use_batched_client: bool = True,
-        batch_interval_hours: float = 1,
+        batch_interval_minutes: float = 2,
         max_batch_size: int = 50,
     ):
         # basic paths
@@ -85,8 +84,7 @@ class gum:
         self.audit_enabled = audit_enabled
 
         # batching configuration
-        self.use_batched_client = use_batched_client
-        self.batch_interval_hours = batch_interval_hours
+        self.batch_interval_minutes = batch_interval_minutes
         self.max_batch_size = max_batch_size
 
         # logging
@@ -114,19 +112,15 @@ class gum:
         self._data_directory = data_directory
 
         # Initialize batcher if enabled
-        if self.use_batched_client:
-            self.batcher = ObservationBatcher(
-                data_directory=data_directory,
-                batch_interval_hours=batch_interval_hours,
-                max_batch_size=max_batch_size
-            )
-        else:
-            self.batcher = None
+        self.batcher = ObservationBatcher(
+            data_directory=data_directory,
+            batch_interval_minutes=batch_interval_minutes,
+            max_batch_size=max_batch_size
+        )
 
-        self._update_sem = asyncio.Semaphore(max_concurrent_updates)
-        self._tasks: set[asyncio.Task] = set()
         self._loop_task: asyncio.Task | None = None
         self._batch_task: asyncio.Task | None = None
+        self._batch_processing_lock = asyncio.Lock()
         self.update_handlers: list[Callable[[Observer, Update], None]] = []
 
     def start_update_loop(self):
@@ -135,7 +129,7 @@ class gum:
             self._loop_task = asyncio.create_task(self._update_loop())
             
         # Start batch processing if enabled
-        if self.use_batched_client and self.batcher and self._batch_task is None:
+        if self._batch_task is None:
             self._batch_task = asyncio.create_task(self._batch_processing_loop())
 
     async def stop_update_loop(self):
@@ -192,10 +186,6 @@ class gum:
         """
         await self.stop_update_loop()
 
-        # wait for any in-flight handlers
-        if self._tasks:
-            await asyncio.gather(*self._tasks, return_exceptions=True)
-
         # stop observers
         for obs in self.observers:
             await obs.stop()
@@ -220,21 +210,22 @@ class gum:
                 upd: Update = fut.result()
                 obs = gets[fut]
 
-                t = asyncio.create_task(self._run_with_gate(obs, upd))
-                self._tasks.add(t)
+                asyncio.create_task(self._default_handler(obs, upd))
 
     async def _batch_processing_loop(self):
         """Process batched observations periodically to reduce API calls."""
         while True:
             try:
                 # Wait for the batch interval
-                await asyncio.sleep(self.batch_interval_hours * 3600)
+                await asyncio.sleep(self.batch_interval_minutes * 60)
                 
                 # Get pending observations
-                batch = self.batcher.get_batch()
+                batch = self.batcher.pop_batch()
                 if batch:
                     self.logger.info(f"Processing batch of {len(batch)} observations")
-                    await self._process_batch(batch)
+                    # Use lock to ensure batch processing runs synchronously
+                    async with self._batch_processing_lock:
+                        await self._process_batch(batch)
                 else:
                     self.logger.debug("No observations to process in this batch")
                     
@@ -256,15 +247,15 @@ class gum:
         observation_ids = []
         
         for obs in batched_observations:
-            combined_content.append(f"[{obs.observer_name}] {obs.content}")
-            observation_ids.append(obs.id)
+            combined_content.append(f"[{obs['observer_name']}] {obs['content']}")
+            observation_ids.append(obs['id'])
             
         combined_text = "\n\n".join(combined_content)
         
         # Create a combined update
         combined_update = Update(
             content=combined_text,
-            content_type="text"
+            content_type="input_text"
         )
         
         try:
@@ -273,9 +264,9 @@ class gum:
                 observations = []
                 for obs in batched_observations:
                     observation = Observation(
-                        observer_name=obs.observer_name,
-                        content=obs.content,
-                        content_type=obs.content_type,
+                        observer_name=obs['observer_name'],
+                        content=obs['content'],
+                        content_type=obs['content_type'],
                     )
                     session.add(observation)
                     observations.append(observation)
@@ -283,43 +274,27 @@ class gum:
                 await session.flush()
                 
                 # Process the combined content
-                pool = await self._generate_and_search(session, combined_update, observations[0])
-                
-                if pool:
-                    self.logger.info(f"Linking batch observations to {len(pool)} candidate propositions.")
-                    for prop in pool:
-                        for obs in observations:
-                            await self._attach_obs_if_missing(prop, obs, session)
-                    await session.flush()
-
+                pool = await self._generate_and_search(session, combined_update)
                 identical, similar, different = await self._filter_propositions(pool)
 
                 self.logger.info("Applying proposition updates for batch...")
-                await self._handle_identical(session, identical, observations[0])
-                await self._handle_similar(session, similar, observations[0])
-                await self._handle_different(session, different, observations[0])
+                await self._handle_identical(session, identical, observations)
+                await self._handle_similar(session, similar, observations)
+                await self._handle_different(session, different, observations)
                 
-                # Mark observations as processed
-                self.batcher.mark_processed(observation_ids)
-                
+                # Observations are already removed from queue by pop_batch()
                 self.logger.info(f"Completed processing batch of {len(batched_observations)} observations")
                 
         except Exception as e:
             self.logger.error(f"Error processing batch: {e}")
-            # Don't mark as processed if there was an error
-
-    async def _run_with_gate(self, observer: Observer, update: Update):
-        """Wrapper that enforces max_concurrent_updates.
-        
-        Args:
-            observer (Observer): The observer that generated the update.
-            update (Update): The update to process.
-        """
-        async with self._update_sem:
-            try:
-                await self._default_handler(observer, update)
-            finally:
-                self._tasks.discard(asyncio.current_task())
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            self.logger.error(f"Batch size: {len(batched_observations)}")
+            if batched_observations:
+                self.logger.error(f"First observation type: {type(batched_observations[0])}")
+                self.logger.error(f"First observation: {batched_observations[0]}")
+            # Put failed items back in queue for retry
+            for obs in batched_observations:
+                self.batcher.push(obs['observer_name'], obs['content'], obs['content_type'])
 
     async def _construct_propositions(self, update: Update) -> list[PropositionItem]:
         """Generate propositions from an update.
@@ -459,7 +434,7 @@ class gum:
         return json.loads(rsp.choices[0].message.content)["propositions"]
 
     async def _generate_and_search(
-        self, session: AsyncSession, update: Update, obs: Observation
+        self, session: AsyncSession, update: Update
     ) -> list[Proposition]:
 
         drafts_raw = await self._construct_propositions(update)
@@ -482,7 +457,7 @@ class gum:
                 hits = await search_propositions_bm25(
                     session, f"{draft.text}\n{draft.reasoning}", mode="OR",
                     include_observations=False,
-                    enable_mmr=True,
+                    enable_mmr=False,
                     enable_decay=True
                 )
                 
@@ -498,58 +473,60 @@ class gum:
         return list(pool.values())
 
     async def _handle_identical(
-        self, session, identical: list[Proposition], obs: Observation
+        self, session, identical: list[Proposition], observations: list[Observation]
     ) -> None:
         for p in identical:
-            await self._attach_obs_if_missing(p, obs, session)
+            for obs in observations:
+                await self._attach_obs_if_missing(p, obs, session)
 
     async def _handle_similar(
         self,
         session: AsyncSession,
         similar: list[Proposition],
-        obs: Observation,
+        observations: list[Observation],
     ) -> None:
 
         if not similar:
             return
 
+        # Collect all observations from similar propositions
         rel_obs = {
             o
             for p in similar
             for o in await get_related_observations(session, p.id)
         }
-        rel_obs.add(obs)
+        # Add all the batched observations
+        rel_obs.update(observations)
 
+        # Generate revised propositions
         revised_items = await self._revise_propositions(list(rel_obs), similar)
-        newest_version = max(p.version for p in similar)
-        parent_groups = {p.revision_group for p in similar}
-        if len(parent_groups) == 1:
-            revision_group = parent_groups.pop()
-        else:
-            revision_group = uuid4().hex
-
-        new_children: list[Proposition] = []
+        
+        # Delete all old similar propositions
+        for prop in similar:
+            await session.delete(prop)
+        
+        # Create new propositions to replace them
+        revision_group = str(uuid4())
         for item in revised_items:
-            child = Proposition(
+            new_prop = Proposition(
                 text=item["proposition"],
                 reasoning=item["reasoning"],
                 confidence=item.get("confidence"),
                 decay=item.get("decay"),
-                version=newest_version + 1,
+                version=1,  # Start fresh with version 1
                 revision_group=revision_group,
                 observations=rel_obs,
-                parents=set(similar),
             )
-            session.add(child)
-            new_children.append(child)
+            session.add(new_prop)
 
         await session.flush()
 
     async def _handle_different(
-        self, session, different: list[Proposition], obs: Observation
+        self, session, different: list[Proposition], observations: list[Observation]
     ) -> None:
         for p in different:
-            await self._attach_obs_if_missing(p, obs, session)
+            for obs in observations:
+                await self._attach_obs_if_missing(p, obs, session)
 
     async def _handle_audit(self, obs: Observation) -> bool:
         if not self.audit_enabled:
@@ -609,45 +586,13 @@ class gum:
     async def _default_handler(self, observer: Observer, update: Update) -> None:
         self.logger.info(f"Processing update from {observer.name}")
 
-        # If batching is enabled, add to batch instead of processing immediately
-        if self.use_batched_client and self.batcher:
-            observation_id = self.batcher.add_observation(
-                observer_name=observer.name,
-                content=update.content,
-                content_type=update.content_type
-            )
-            self.logger.info(f"Added observation {observation_id} to batch (pending: {self.batcher.get_pending_count()})")
-            return
-
-        # Original processing logic for non-batched mode
-        async with self._session() as session:
-            observation = Observation(
-                observer_name=observer.name,
-                content=update.content,
-                content_type=update.content_type,
-            )
-
-            if await self._handle_audit(observation):
-                return
-
-            session.add(observation)
-            await session.flush() # Observation gets its ID
-
-            pool = await self._generate_and_search(session, update, observation)
-
-            if pool:
-                self.logger.info(f"Linking observation to {len(pool)} candidate propositions.")
-                for prop in pool:
-                    await self._attach_obs_if_missing(prop, observation, session)
-                await session.flush()
-
-            identical, similar, different = await self._filter_propositions(pool)
-
-            self.logger.info("Applying proposition updates...")
-            await self._handle_identical(session, identical, observation)
-            await self._handle_similar(session, similar, observation)
-            await self._handle_different(session, different, observation)
-            self.logger.info("Completed processing update")
+        # add to batch
+        observation_id = self.batcher.push(
+            observer_name=observer.name,
+            content=update.content,
+            content_type=update.content_type
+        )
+        self.logger.info(f"Added observation {observation_id} to queue (size: {self.batcher.size()})")
 
     @asynccontextmanager
     async def _session(self):

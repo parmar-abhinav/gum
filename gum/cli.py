@@ -31,8 +31,7 @@ def parse_args():
     parser.add_argument('--reset-cache', action='store_true', help='Reset the GUM cache and exit')  # Add this line
     
     # Batching configuration arguments
-    parser.add_argument('--use-batched-client', action='store_true', help='Enable batched client processing')
-    parser.add_argument('--batch-interval-hours', type=float, help='Hours between batch processing')
+    parser.add_argument('--batch-interval-minutes', type=float, help='Minutes between batch processing')
     parser.add_argument('--max-batch-size', type=int, help='Maximum number of observations per batch')
 
     args = parser.parse_args()
@@ -58,10 +57,8 @@ async def main():
     model = args.model or os.getenv('MODEL_NAME') or 'gpt-4o-mini'
     user_name = args.user_name or os.getenv('USER_NAME')
 
-    # Batching configuration - follow same pattern as other args
-    use_batched_client = args.use_batched_client or os.getenv('USE_BATCHED_CLIENT', 'false').lower() == 'true'
-    
-    batch_interval_hours = args.batch_interval_hours or float(os.getenv('BATCH_INTERVAL_HOURS', '1'))
+    # Batching configuration - follow same pattern as other args    
+    batch_interval_minutes = args.batch_interval_minutes or float(os.getenv('BATCH_INTERVAL_MINUTES', '2'))
     max_batch_size = args.max_batch_size or int(os.getenv('MAX_BATCH_SIZE', '50'))
 
     # you need one or the other
@@ -86,17 +83,12 @@ async def main():
             print("-" * 80)
     else:
         print(f"Listening to {user_name} with model {model}")
-        if use_batched_client:
-            print(f"Batching enabled: processing every {batch_interval_hours} hours (max {max_batch_size} observations per batch)")
-        else:
-            print("Batching disabled: processing observations immediately")
             
         async with gum(
             user_name, 
             model, 
             Screen(model),
-            use_batched_client=use_batched_client,
-            batch_interval_hours=batch_interval_hours,
+            batch_interval_minutes=batch_interval_minutes,
             max_batch_size=max_batch_size
         ) as gum_instance:
             await asyncio.Future()  # run forever (Ctrl-C to stop)
