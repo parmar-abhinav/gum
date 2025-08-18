@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
@@ -8,9 +9,9 @@ from persistqueue import Queue
 class ObservationBatcher:
     """A persistent queue for batching observations to reduce API calls."""
     
-    def __init__(self, data_directory: str, batch_interval_minutes: float = 2, max_batch_size: int = 50):
+    def __init__(self, data_directory: str, min_batch_size: int = 5, max_batch_size: int = 50):
         self.data_directory = Path(data_directory)
-        self.batch_interval_minutes = batch_interval_minutes
+        self.min_batch_size = min_batch_size
         self.max_batch_size = max_batch_size
         
         # Create persistent queue backed by SQLite
@@ -18,11 +19,15 @@ class ObservationBatcher:
         queue_dir.mkdir(parents=True, exist_ok=True)
         self._queue = Queue(path=str(queue_dir / "queue"))
         
+        self._batch_ready_event = asyncio.Event()        
         self.logger = logging.getLogger("gum.batcher")
         
     async def start(self):
         """Start the batching system."""
         self.logger.info(f"Started batcher with {self._queue.qsize()} items in queue")
+        
+        if self.should_process_batch():
+            self._batch_ready_event.set()
         
     async def stop(self):
         """Stop the batching system."""
@@ -52,11 +57,19 @@ class ObservationBatcher:
         self._queue.put(observation_dict)
         self.logger.debug(f"Pushed observation {observation_id} to queue (size: {self._queue.qsize()})")
         
+        # Signal that a batch is ready if we've reached minimum size
+        if self.should_process_batch():
+            self._batch_ready_event.set()
+        
         return observation_id
         
     def size(self) -> int:
         """Get the current size of the queue."""
         return self._queue.qsize()
+        
+    def should_process_batch(self) -> bool:
+        """Check if the batch should be processed based on minimum batch size."""
+        return self._queue.qsize() >= self.min_batch_size
         
     def pop_batch(self, batch_size: Optional[int] = None) -> List[Dict[str, Any]]:
         """Pop a batch of observations from the front of the queue (FIFO).
@@ -76,5 +89,11 @@ class ObservationBatcher:
         if batch:
             self.logger.debug(f"Popped batch of {len(batch)} observations (queue size: {self._queue.qsize()})")
         
+        if not self.should_process_batch():
+            self._batch_ready_event.clear()
+        
         return batch
     
+    async def wait_for_batch_ready(self):
+        """Wait for a batch to be ready for processing."""
+        await self._batch_ready_event.wait()
