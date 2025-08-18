@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument('--reset-cache', action='store_true', help='Reset the GUM cache and exit')  # Add this line
     
     # Batching configuration arguments
-    parser.add_argument('--batch-interval-minutes', type=float, help='Minutes between batch processing')
+    parser.add_argument('--min-batch-size', type=int, help='Minimum number of observations to trigger batch processing')
     parser.add_argument('--max-batch-size', type=int, help='Maximum number of observations per batch')
 
     args = parser.parse_args()
@@ -58,8 +58,8 @@ async def main():
     user_name = args.user_name or os.getenv('USER_NAME')
 
     # Batching configuration - follow same pattern as other args    
-    batch_interval_minutes = args.batch_interval_minutes or float(os.getenv('BATCH_INTERVAL_MINUTES', '2'))
-    max_batch_size = args.max_batch_size or int(os.getenv('MAX_BATCH_SIZE', '50'))
+    min_batch_size = args.min_batch_size or int(os.getenv('MIN_BATCH_SIZE', '5'))
+    max_batch_size = args.max_batch_size or int(os.getenv('MAX_BATCH_SIZE', '15'))
 
     # you need one or the other
     if user_name is None and args.query is None:
@@ -88,7 +88,7 @@ async def main():
             user_name, 
             model, 
             Screen(model),
-            batch_interval_minutes=batch_interval_minutes,
+            min_batch_size=min_batch_size,
             max_batch_size=max_batch_size
         ) as gum_instance:
             await asyncio.Future()  # run forever (Ctrl-C to stop)

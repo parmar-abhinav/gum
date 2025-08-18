@@ -70,7 +70,7 @@ class gum:
         audit_enabled: bool = False,
         api_base: str | None = None,
         api_key: str | None = None,
-        batch_interval_minutes: float = 2,
+        min_batch_size: int = 5,
         max_batch_size: int = 50,
     ):
         # basic paths
@@ -84,7 +84,7 @@ class gum:
         self.audit_enabled = audit_enabled
 
         # batching configuration
-        self.batch_interval_minutes = batch_interval_minutes
+        self.min_batch_size = min_batch_size
         self.max_batch_size = max_batch_size
 
         # logging
@@ -114,7 +114,7 @@ class gum:
         # Initialize batcher if enabled
         self.batcher = ObservationBatcher(
             data_directory=data_directory,
-            batch_interval_minutes=batch_interval_minutes,
+            min_batch_size=min_batch_size,
             max_batch_size=max_batch_size
         )
 
@@ -213,34 +213,19 @@ class gum:
                 asyncio.create_task(self._default_handler(obs, upd))
 
     async def _batch_processing_loop(self):
-        """Process batched observations periodically to reduce API calls."""
+        """Process batched observations when minimum batch size is reached."""
         while True:
-            try:
-                # Wait for the batch interval
-                await asyncio.sleep(self.batch_interval_minutes * 60)
-                
-                # Get pending observations
+            # Wait for batch to be ready (event-driven, no polling!)
+            await self.batcher.wait_for_batch_ready()
+            
+            # Use lock to ensure batch processing runs synchronously
+            async with self._batch_processing_lock:
                 batch = self.batcher.pop_batch()
-                if batch:
-                    self.logger.info(f"Processing batch of {len(batch)} observations")
-                    # Use lock to ensure batch processing runs synchronously
-                    async with self._batch_processing_lock:
-                        await self._process_batch(batch)
-                else:
-                    self.logger.debug("No observations to process in this batch")
-                    
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error(f"Error in batch processing loop: {e}")
-                await asyncio.sleep(60)  # Wait a minute before retrying
+                self.logger.info(f"Processing batch of {len(batch)} observations")
+                await self._process_batch(batch)
 
     async def _process_batch(self, batched_observations):
         """Process a batch of observations together to reduce API calls."""
-        if not batched_observations:
-            return
-            
-        self.logger.info(f"Processing {len(batched_observations)} observations in batch")
         
         # Combine all observations into a single content for analysis
         combined_content = []
