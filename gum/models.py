@@ -54,22 +54,7 @@ observation_proposition = Table(
     ),
 )
 
-proposition_parent = Table(
-    "proposition_parent",
-    Base.metadata,
-    Column(
-        "child_id",
-        Integer,
-        ForeignKey("propositions.id", ondelete="CASCADE"),
-        primary_key=True,
-    ),
-    Column(
-        "parent_id",
-        Integer,
-        ForeignKey("propositions.id", ondelete="CASCADE"),
-        primary_key=True,
-    ),
-)
+
 
 
 class Observation(Base):
@@ -138,7 +123,7 @@ class Proposition(Base):
         updated_at (datetime): When the proposition was last updated.
         revision_group (str): Group identifier for related proposition revisions.
         version (int): Version number of this proposition.
-        parents (set[Proposition]): Set of parent propositions.
+
         observations (set[Observation]): Set of observations related to this proposition.
     """
     __tablename__ = "propositions"
@@ -162,15 +147,7 @@ class Proposition(Base):
     revision_group: Mapped[str]       = mapped_column(String(36), nullable=False, index=True)
     version:        Mapped[int]       = mapped_column(Integer, server_default="1", nullable=False)
 
-    parents: Mapped[set["Proposition"]] = relationship(
-        "Proposition",
-        secondary=proposition_parent,
-        primaryjoin=id == proposition_parent.c.child_id,
-        secondaryjoin=id == proposition_parent.c.parent_id,
-        backref="children",
-        collection_class=set,
-        lazy="selectin",
-    )
+
 
     observations: Mapped[set[Observation]] = relationship(
         "Observation",
